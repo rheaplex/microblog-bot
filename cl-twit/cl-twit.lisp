@@ -68,7 +68,6 @@
   (let ((node (xml-root raw-xml)))
     (if (string-equal (stp:local-name node) "error")
         (error (parse-xml-error node))
-	;; cl-twit expects a list but it's an array, so convert it
 	node)))
 
 (defun parse-status (status-node)
