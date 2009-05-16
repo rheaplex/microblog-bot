@@ -53,7 +53,10 @@
 	     :initform (* 60 10))
    (max-wait :accessor max-wait 
 	     :initarg :max-wait 
-	     :initform (* 60 60 2))))
+	     :initform (* 60 60 2))
+   (ignore-messages-from :accessor ignore-messages-from 
+	     :initarg :ignore
+	     :initform '())))
 
 (defmethod reset-wait ((bot microblog-bot))
   "Set the bot's next wait period to between min-wait..max-wait, and wait to 0."
@@ -78,7 +81,7 @@
 			   (cl-twit:status-user mention)))))
 
 (defmethod filter-mentions ((bot microblog-bot) mentions)
-  "Make sure only onemention from each user is listed."
+  "Make sure only one mention from each user is listed."
   (remove-duplicates mentions 
 		     :test #'(lambda (a b)
 			       (string=
@@ -93,7 +96,11 @@
   (let ((replies (cl-twit:m-replies :since-id (most-recent-mention-id bot))))
     (when replies
       (dolist (mention (filter-mentions bot replies))
-	(respond-to-mention bot mention))
+	(when (not (find (cl-twit:user-screen-name 
+			   (cl-twit:status-user mention))
+			 (ignore-messages-from bot)
+			 :test #'string=))
+	 (respond-to-mention bot mention)))
       (setf (most-recent-mention-id bot)
 	    (cl-twit::get-newest-id replies)))))
 
