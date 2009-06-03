@@ -16,7 +16,7 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-(cl:defpackage #:microblog-bot
+(defpackage #:microblog-bot
   (:documentation
    "Microblog bot creation support.")
   (:use #:common-lisp #:cl-twit)
@@ -27,4 +27,7 @@
 	   respond-to-mention
 	   filter-mentions
 	   periodic-task
+	   microblog-follower-bot
+	   respond-to-message
+	   filter-messages
 	   run-bot))
