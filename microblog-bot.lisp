@@ -15,10 +15,20 @@
 ;;
 ;; You should have received a copy of the GNU General Public License
 
-(defpackage #:microblog-bot
-  (:use #:cl #:cl-twit))
+;; FIXME - If the user hasn't posted yet, most recent id will be null
+;;         disambiguate this and allow the first post to be caught.
+;;         Just set it back to zero if it comes back null?
+;;         Or might that result in problems if the network is unavailable? Yes.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Package
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (in-package #:microblog-bot)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Users
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun set-microblog-service (server-url from-source)
   "Set the server and the 'from..' string displayed on messages to that server."
@@ -44,6 +54,10 @@
      ;; with-session doesn't currently do this, remove if it ever does.
      (cl-twit:logout)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Basic bot
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defclass microblog-bot (microblog-user)
   ((wait-remaining :accessor wait-remaining 
 		   :initarg :wait-remaining
@@ -53,7 +67,7 @@
 	     :initform (* 60 10))
    (max-wait :accessor max-wait 
 	     :initarg :max-wait 
-	     :initform (* 60 60 2))
+	     :initform (* 60 60 4))
    (ignore-messages-from :accessor ignore-messages-from 
 	     :initarg :ignore
 	     :initform '())))
@@ -67,12 +81,13 @@
 
 (defmethod initialize-instance :after ((bot microblog-bot) &key)
   "Set up the bot's state."
-  ;;  (reset-wait bot)
   (with-microblog-user bot
     (when (= (most-recent-mention-id bot) 0)
       ;; Wasteful, as we only want the most recent id
+      ;; If the user hasn't posted yet, start with the most recent global id
       (setf (most-recent-mention-id bot)
-	    (cl-twit::get-newest-id (cl-twit:m-replies))))))
+	    (or (cl-twit::get-newest-id (cl-twit:m-replies))
+		(cl-twit::get-newest-id (cl-twit:m-replies)))))))
 
 (defmethod respond-to-mention ((bot microblog-bot) mention)
   "Respond to the mention object in some way."
@@ -100,7 +115,9 @@
 			   (cl-twit:status-user mention))
 			 (ignore-messages-from bot)
 			 :test #'string=))
-	 (respond-to-mention bot mention)))
+	  (handler-case 
+	      (respond-to-mention bot mention)
+	    (cl-twit:twitter-error () nil))))
       (setf (most-recent-mention-id bot)
 	    (cl-twit::get-newest-id replies)))))
 
@@ -115,7 +132,9 @@
   "Run the task or update the wait time."  
   (if (<= (wait-remaining bot) 0)
       (progn
-	(periodic-task bot)
+	(handler-case
+	    (periodic-task bot)
+	  (cl-twit:twitter-error () nil))
 	(reset-wait bot)))
   (setf (wait-remaining bot)
 	(- (wait-remaining bot)
@@ -124,17 +143,65 @@
 (defmethod run-bot ((bot microblog-bot))
   "Loop forever responding to mentions & occasionaly performing periodic-task."
   (loop 
+     (handler-case
+	 (with-microblog-user bot
+	   (respond-to-mentions bot)
+	   (manage-periodic-task bot))
+       (cl-twit:twitter-error () nil))
+     (sleep +bot-sleep-time+))) 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; User-following bot
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defclass microblog-follower-bot (microblog-bot)
+  ((most-recent-update-id :accessor most-recent-update-id 
+			  :initarg :most-recent-update-id
+			  :initform 0)
+   (follow-id :accessor follow-id 
+	      :initarg :follow-id)))
+
+(defmethod initialize-instance :after ((bot microblog-follower-bot) &key)
+  "Set up the bot's state."
+  (with-microblog-user bot
+    (when (= (most-recent-update-id bot) 0)
+      ;; Wasteful, as we only want the most recent id
+      ;; If the user hasn't posted yet, start with the most recent global id
+      (setf (most-recent-update-id bot)
+	    (or (cl-twit::get-newest-id (cl-twit:m-user-timeline 
+					 :id (follow-id bot)))
+		(cl-twit::get-newest-id (cl-twit:m-public-timeline)))))))
+
+(defmethod respond-to-message ((bot microblog-follower-bot) message)
+  "Respond to the message object in some way."
+  nil)
+
+(defmethod filter-messages ((bot microblog-follower-bot) messages)
+  "Make sure only one mention from each user is listed."
+  messages)
+
+(defmethod respond-to-messages ((bot microblog-follower-bot))
+  "Respond to new messages since messages were last processed."
+  (assert (not (= (most-recent-update-id bot) 0)))
+  (let ((messages 
+	 (cl-twit:m-user-timeline :id (follow-id bot) 
+				  :since-id (most-recent-update-id bot))))
+    (when messages
+      (dolist (message (filter-messages bot messages))
+	(respond-to-message bot message))
+      (setf (most-recent-update-id bot)
+	    (cl-twit::get-newest-id messages)))))
+
+(defmethod run-bot ((bot microblog-follower-bot))
+  "Loop forever responding to mentions & occasionaly performing periodic-task."
+  (loop 
      (with-microblog-user bot
+       (respond-to-messages bot)
        (respond-to-mentions bot)
        (manage-periodic-task bot)
        (sleep +bot-sleep-time+)))) 
 
 #|
-
-(defclass user-follower ()
-  ((connection)
-   (user-nickname)
-   (most-recent-mention-id)))
 
 (defclass trend-follower ()
   ((connection)))
@@ -148,7 +215,5 @@
 
 (defclass group-follower (search-follower)
   ())
-
-
 
 |#

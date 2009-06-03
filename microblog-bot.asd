@@ -1,4 +1,4 @@
 (asdf:defsystem #:microblog-bot
   :depends-on (#:cl-twit)
-  :components ((:file "microblog-bot")
-	       (:file "package")))
+  :components ((:file "package")
+	       (:file "microblog-bot")))
