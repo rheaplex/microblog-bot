@@ -16,5 +16,6 @@
 
 (asdf:defsystem #:microblog-bot
   :depends-on (#:cl-twit)
+  :serial t
   :components ((:file "package")
 	       (:file "microblog-bot")))
