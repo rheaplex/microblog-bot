@@ -56,12 +56,26 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Basic bot
+;; TODO Split out into constant and intermittent bots, or tasks for a bot?
+;; Tasks are probably best
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defconstant %one-hour (* 60 60)
+  "One hour in seconds")
+
+(defconstant %one-day (* %one-hour 24)
+  "One day in seconds")
+
+(defvar *bot-sleep-time* (* 60 5)
+  "How long to wait between each check")
 
 (defclass microblog-bot (microblog-user)
   ((wait-remaining :accessor wait-remaining 
 		   :initarg :wait-remaining
 		   :initform 0)
+   (previous-day :accessor previous-day 
+		 :initarg :previous-day
+		 :initform 0)
    (min-wait :accessor min-wait 
 	     :initarg :min-wait
 	     :initform (* 60 10))
@@ -82,6 +96,7 @@
 (defmethod initialize-instance :after ((bot microblog-bot) &key)
   "Set up the bot's state."
   (with-microblog-user bot
+    (setf (previous-day bot) (get-universal-time))
     (when (= (most-recent-mention-id bot) 0)
       ;; Wasteful, as we only want the most recent id
       ;; If the user hasn't posted yet, start with the most recent global id
@@ -121,34 +136,53 @@
       (setf (most-recent-mention-id bot)
 	    (cl-twit::get-newest-id replies)))))
 
-(defmethod periodic-task ((bot microblog-bot))
-  "Perform some periodic task."
+(defmethod daily-task ((bot microblog-bot))
+  "Performed every day at midnight."
   nil)
 
-(defparameter +bot-sleep-time+ (* 60 5)
-  "How long to wait between each check")
+(defmethod manage-daily-task ((bot microblog-bot))
+  "If it's a new day (relative to start time), perform the task."
+  (let ((now (get-universal-time)))
+    (when (> (- now (previous-day bot))
+	     %one-day)
+      (daily-task)
+      (setf (previous-day bot) now))))
 
-(defmethod manage-periodic-task ((bot microblog-bot))
+(defmethod constant-task ((bot microblog-bot))
+  "Performed every time the bot wakes up."
+  (format t "Once~%")
+  nil)
+
+(defmethod intermittent-task ((bot microblog-bot))
+  "Perform some intermittent task."
+  nil)
+
+(defmethod manage-intermittent-task ((bot microblog-bot))
   "Run the task or update the wait time."  
   (if (<= (wait-remaining bot) 0)
       (progn
 	(handler-case
-	    (periodic-task bot)
+	    (intermittent-task bot)
 	  (cl-twit:twitter-error () nil))
 	(reset-wait bot)))
   (setf (wait-remaining bot)
 	(- (wait-remaining bot)
-	   +bot-sleep-time+)))
+	   *bot-sleep-time*)))
+
+(defmethod run-bot-once ((bot microblog-bot))
+  (manage-daily-task bot)
+  (constant-task bot)
+  (respond-to-mentions bot)
+  (manage-intermittent-task bot))
 
 (defmethod run-bot ((bot microblog-bot))
   "Loop forever responding to mentions & occasionaly performing periodic-task."
   (loop 
      (handler-case
 	 (with-microblog-user bot
-	   (respond-to-mentions bot)
-	   (manage-periodic-task bot))
+	   (run-bot-once bot))
        (cl-twit:twitter-error () nil))
-     (sleep +bot-sleep-time+))) 
+     (sleep *bot-sleep-time*))) 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; User-following bot
@@ -192,14 +226,10 @@
       (setf (most-recent-update-id bot)
 	    (cl-twit::get-newest-id messages)))))
 
-(defmethod run-bot ((bot microblog-follower-bot))
-  "Loop forever responding to mentions & occasionaly performing periodic-task."
-  (loop 
-     (with-microblog-user bot
-       (respond-to-messages bot)
-       (respond-to-mentions bot)
-       (manage-periodic-task bot)
-       (sleep +bot-sleep-time+)))) 
+(defmethod run-bot-once ((bot microblog-follower-bot))
+  "Run a single iteration of the bot main loop. For running as a cron job."
+    (call-next-method)
+    (respond-to-messages bot))
 
 #|
 

@@ -24,7 +24,8 @@
 	   microblog-bot
 	   respond-to-mention
 	   filter-mentions
-	   periodic-task
+	   constant-task
+	   intermittent-task
 	   microblog-follower-bot
 	   respond-to-message
 	   filter-messages
