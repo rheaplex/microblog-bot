@@ -82,6 +82,13 @@
    (max-wait :accessor max-wait 
 	     :initarg :max-wait 
 	     :initform (* 60 60 4))
+   (daily-task-hour :accessor daily-task-hour
+		    :initarg :daily-task-hour 
+		    :initform 0)   
+   (source-url :accessor source-url
+		    :initarg :source-url
+		    :allocation :class
+		    :initform nil)
    (ignore-messages-from :accessor ignore-messages-from 
 	     :initarg :ignore
 	     :initform '())))
@@ -95,14 +102,22 @@
 
 (defmethod initialize-instance :after ((bot microblog-bot) &key)
   "Set up the bot's state."
+  (assert (source-url bot))
   (with-microblog-user bot
-    (setf (previous-day bot) (get-universal-time))
+    (setf (previous-day bot) (floor (get-universal-time) %one-day))
     (when (= (most-recent-mention-id bot) 0)
       ;; Wasteful, as we only want the most recent id
       ;; If the user hasn't posted yet, start with the most recent global id
       (setf (most-recent-mention-id bot)
 	    (or (cl-twit::get-newest-id (cl-twit:m-replies))
-		(cl-twit::get-newest-id (cl-twit:m-replies)))))))
+		(cl-twit::get-newest-id (cl-twit:m-public-timeline)))))))
+
+(defmethod respond-to-source-request ((bot microblog-bot) mention)
+  "Respond to the source request."
+  (cl-twit:update (format nil "@~a Hi! You can get my source here: ~a" 
+			  (cl-twit:user-screen-name 
+			   (cl-twit:status-user mention))
+			  (source-url bot))))
 
 (defmethod respond-to-mention ((bot microblog-bot) mention)
   "Respond to the mention object in some way."
@@ -131,7 +146,9 @@
 			 (ignore-messages-from bot)
 			 :test #'string=))
 	  (handler-case 
-	      (respond-to-mention bot mention)
+	      (if (search "!source" (cl-twit:status-text mention))
+		  (respond-to-source-request bot mention)
+		  (respond-to-mention bot mention))
 	    (cl-twit:twitter-error () nil))))
       (setf (most-recent-mention-id bot)
 	    (cl-twit::get-newest-id replies)))))
@@ -141,12 +158,12 @@
   nil)
 
 (defmethod manage-daily-task ((bot microblog-bot))
-  "If it's a new day (relative to start time), perform the task."
-  (let ((now (get-universal-time)))
-    (when (> (- now (previous-day bot))
-	     %one-day)
-      (daily-task)
-      (setf (previous-day bot) now))))
+  "If it's a new day and after the appointed hour, perform the task."
+  (multiple-value-bind (days seconds) (floor (get-universal-time) %one-day)
+    (when (and (> days (previous-day bot))
+	       (> seconds (* (daily-task-hour bot) %one-hour)))
+      (daily-task bot)
+      (setf (previous-day bot) days))))
 
 (defmethod constant-task ((bot microblog-bot))
   "Performed every time the bot wakes up."
@@ -170,19 +187,19 @@
 	   *bot-sleep-time*)))
 
 (defmethod run-bot-once ((bot microblog-bot))
-  (manage-daily-task bot)
-  (constant-task bot)
-  (respond-to-mentions bot)
-  (manage-intermittent-task bot))
+  (with-microblog-user bot
+    (manage-daily-task bot)
+    (constant-task bot)
+    (respond-to-mentions bot)
+    (manage-intermittent-task bot)))
 
 (defmethod run-bot ((bot microblog-bot))
   "Loop forever responding to mentions & occasionaly performing periodic-task."
   (loop 
      (handler-case
-	 (with-microblog-user bot
-	   (run-bot-once bot))
+	 (run-bot-once bot)
        (cl-twit:twitter-error () nil))
-     (sleep *bot-sleep-time*))) 
+     (sleep *bot-sleep-time*)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; User-following bot

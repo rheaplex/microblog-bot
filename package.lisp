@@ -17,7 +17,7 @@
 (defpackage #:microblog-bot
   (:documentation
    "Microblog bot creation support.")
-  (:use #:common-lisp #:cl-twit)
+  (:use #:common-lisp #:cl-twit #:cl-smtp)
   (:export set-microblog-service
 	   microblog-user
 	   with-microblog-user
@@ -29,4 +29,5 @@
 	   microblog-follower-bot
 	   respond-to-message
 	   filter-messages
+	   run-bot-once
 	   run-bot))
