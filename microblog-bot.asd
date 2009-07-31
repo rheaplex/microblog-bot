@@ -15,7 +15,7 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (asdf:defsystem #:microblog-bot
-  :depends-on (#:cl-twit)
+  :depends-on (#:cl-twit #:cl-smtp)
   :serial t
   :components ((:file "package")
 	       (:file "microblog-bot")))
