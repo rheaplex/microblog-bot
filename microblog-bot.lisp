@@ -44,7 +44,7 @@
 			   :initarg :most-recent-mention-id 
 			   :initform 0)))
 
-(defvar *live* nil)
+(defvar *live* t)
 
 (defmacro with-microblog-user (user &body body)
   "Log in, execture the body, log out."
@@ -61,7 +61,10 @@
   (let ((new-id (gensym)))
     `(let ((,new-id (cl-twit::id ,item))) 
        (when (> ,new-id ,place)
-	 (seft ,place ,new-id)))))
+	 (setf ,place ,new-id)))))
+
+(defun post (message)
+  (cl-twit:update message))
 
 (defun set-debug ()
   (setf *live* nil)
@@ -72,8 +75,6 @@
   (setf *live* t)
   (setf (symbol-function 'post) #'(lambda (message)
 	       (cl-twit:update message))))
-
-(set-live)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Basic bot
@@ -248,7 +249,7 @@
    (follow-id :accessor follow-id 
 	      :initarg :follow-id)))
 
-(defun current-user-posts-after-id (bot)
+(defun current-user-posts-after-id ()
   "Get the exclusive lower bound for replies to the user to check."
   ;; Wasteful, as we only want the most recent id
   ;; If the user hasn't posted yet, start with the most recent global id
