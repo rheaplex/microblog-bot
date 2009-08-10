@@ -19,15 +19,20 @@
    "Microblog bot creation support.")
   (:use #:common-lisp #:cl-twit)
   (:export set-microblog-service
+	   set-debug
+	   set-live
 	   microblog-user
 	   with-microblog-user
+	   post
 	   microblog-bot
-	   respond-to-mention
+	   response-for-mention
+	   response-for-source-request
+	   respond-to-message
+	   response-for-message
 	   filter-mentions
 	   constant-task
 	   intermittent-task
 	   microblog-follower-bot
-	   respond-to-message
 	   filter-messages
 	   run-bot-once
 	   run-bot))
