@@ -93,6 +93,10 @@
   (apply #'format t (concatenate 'string "~a - " (car args) "~%") 
 	 (time-string) (cdr args)))
 
+;; Placeholders
+(defun post (message))
+(defun debug-msg (&rest args))
+
 (defun set-debug ()
   (setf *live* nil)
   (setf *min-wait-time* %min-wait-debug)
@@ -109,7 +113,7 @@
   (setf (symbol-function 'post) #'post-live)
   (setf (symbol-function 'debug-msg) #'debug-msg-debug))
 
-(eval-when (:compile-toplevel :execute :load-toplevel)
+(eval-when (:execute)
   (set-live))
 
 (defun report-error (&rest args)
