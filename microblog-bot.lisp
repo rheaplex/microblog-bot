@@ -20,11 +20,101 @@
 ;;         Just set it back to zero if it comes back null?
 ;;         Or might that result in problems if the network is unavailable? Yes.
 
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Package
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (in-package #:microblog-bot)
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Useful constants
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defconstant %one-hour (* 60 60)
+  "One hour in seconds")
+(defconstant %one-day (* %one-hour 24)
+  "One day in seconds")
+
+(defconstant %min-wait-live (* 60 60 1)
+  "The default minimum time in seconds between posts used by live bots")
+(defconstant %max-wait-live (* 60 60 4)
+  "The default maximum time between posts used by live bots")
+(defconstant %sleep-time-live (* 60 60 1)
+  "The sleep time used by live bots")
+
+(defconstant %min-wait-debug 2
+  "The default minimum time in seconds between posts used by test bots")
+(defconstant %max-wait-debug 4
+  "The default maximum time in seconds between posts used by test bots")
+(defconstant %sleep-time-debug 1
+  "The sleep time used by debug bots")
+
+(defvar %bot-sleep-time-debug 1
+  "How long to wait between each check when debugging")
+
+(defvar %bot-sleep-time-live (* 60 5)
+  "How long to wait between each check when live")
+
+(defvar *min-wait-time* %min-wait-live
+  "The default minimum time in seconds between posts used by bots")
+
+(defvar *max-wait-time* %max-wait-live
+  "The default maximum time in seconds between posts used by bots")
+
+(defvar *bot-sleep-time* %bot-sleep-time-live
+  "How long to wait between each check")
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Error handling and testing
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar *live* t)
+
+(defun time-string ()
+  (multiple-value-bind (second minute hour date month year)
+      (get-decoded-time)
+    (format nil "~a-~a-~a ~a:~a:~a" year month date hour minute second)))
+
+(defun post-live (message)
+  (cl-twit:update message))
+
+(defun post-debug (message)
+  (format t "~a - ~a~%" (time-string) message))
+
+(defun debug-msg-live (&rest args)
+  "Ignore"
+  nil)
+
+(defun debug-msg-debug (&rest args)
+  "Format the message to stdout"
+  (apply #'format t (concatenate 'string "~a - " (car args) "~%") 
+	 (time-string) (cdr args)))
+
+(defun set-debug ()
+  (setf *live* nil)
+  (setf *min-wait-time* %min-wait-debug)
+  (setf *max-wait-time* %max-wait-debug)
+  (setf *bot-sleep-time* %bot-sleep-time-debug)
+  (setf (symbol-function 'post) #'post-debug)
+  (setf (symbol-function 'debug-msg) #'debug-msg-debug))
+
+(defun set-live ()
+  (setf *live* t)
+  (setf *min-wait-time* %min-wait-live)
+  (setf *max-wait-time* %max-wait-live)
+  (setf *bot-sleep-time* %bot-sleep-time-live)
+  (setf (symbol-function 'post) #'post-live)
+  (setf (symbol-function 'debug-msg) #'debug-msg-debug))
+
+(eval-when (:compile-toplevel :execute :load-toplevel)
+  (set-live))
+
+(defun report-error (&rest args)
+  (apply #'format t args))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Users
@@ -32,8 +122,16 @@
 
 (defun set-microblog-service (server-url from-source)
   "Set the server and the 'from..' string displayed on messages to that server."
+  (debug-msg "Setting server to ~a (~a)" server-url from-source)
   (setf twit::*source* from-source)
   (setf twit::*base-url* server-url))
+
+(defmacro update-id (place item)
+  "Change the id at place for item's id if higher"
+  (let ((new-id (gensym)))
+    `(let ((,new-id (cl-twit::id ,item))) 
+       (when (> ,new-id ,place)
+	 (setf ,place ,new-id)))))
 
 (defclass microblog-user ()
   ((user-nickname :reader user-nickname
@@ -44,52 +142,24 @@
 			   :initarg :most-recent-mention-id 
 			   :initform 0)))
 
-(defvar *live* t)
-
 (defmacro with-microblog-user (user &body body)
   "Log in, execture the body, log out."
   `(progn
      (cl-twit:with-session ((user-nickname ,user) 
 			    (user-password ,user) 
 			    :authenticatep t)
+       (debug-msg "With user ~a" ,user)     
        ,@body)
+       (debug-msg "Finished with user ~a" ,user)     
      ;; with-session doesn't currently do this, remove if it ever does.
      (cl-twit:logout)))
 
-(defmacro update-id (place item)
-  "Change the id at place for item's id if higher"
-  (let ((new-id (gensym)))
-    `(let ((,new-id (cl-twit::id ,item))) 
-       (when (> ,new-id ,place)
-	 (setf ,place ,new-id)))))
-
-(defun post (message)
-  (cl-twit:update message))
-
-(defun set-debug ()
-  (setf *live* nil)
-  (setf (symbol-function 'post) #'(lambda(message)
-				    (format t "~a~%" message))))
-
-(defun set-live ()
-  (setf *live* t)
-  (setf (symbol-function 'post) #'(lambda (message)
-	       (cl-twit:update message))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Basic bot
 ;; TODO Split out into constant and intermittent bots, or tasks for a bot?
 ;; Tasks are probably best
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defconstant %one-hour (* 60 60)
-  "One hour in seconds")
-
-(defconstant %one-day (* %one-hour 24)
-  "One day in seconds")
-
-(defvar *bot-sleep-time* (* 60 5)
-  "How long to wait between each check")
 
 (defclass microblog-bot (microblog-user)
   ((wait-remaining :accessor wait-remaining 
@@ -100,10 +170,10 @@
 		 :initform 0)
    (min-wait :accessor min-wait 
 	     :initarg :min-wait
-	     :initform (* 60 60 1))
+	     :initform *min-wait-time*)
    (max-wait :accessor max-wait 
 	     :initarg :max-wait 
-	     :initform (* 60 60 4))
+	     :initform *max-wait-time*)
    (daily-task-hour :accessor daily-task-hour
 		    :initarg :daily-task-hour 
 		    :initform 0)   
@@ -120,7 +190,8 @@
   (setf (wait-remaining bot)
 	(+ (min-wait bot)
 	   (random (- (max-wait bot)
-		      (min-wait bot))))))
+		      (min-wait bot)))))
+    (debug-msg "Resetting wait period for ~a to ~a" bot (wait-remaining bot)))
 
 (defun current-user-replies-after-id ()
   "Get the exclusive lower bound for replies to the user to check."
@@ -136,7 +207,9 @@
     (setf (previous-day bot) (floor (get-universal-time) %one-day))
     (when (= (most-recent-mention-id bot) 0)
       (setf (most-recent-mention-id bot)
-	    (current-user-replies-after-id)))))
+	    (current-user-replies-after-id))))
+    (debug-msg "Initialized bot ~a previous-day ~a most-recent-mention ~a" 
+	       (previous-day bot) (most-recent-mention-id bot) bot ))
 
 (defmethod response-for-source-request ((bot microblog-bot) mention)
   "Response for the source request."
@@ -147,8 +220,11 @@
 
 (defmethod respond-to-source-request ((bot microblog-bot) mention)
   "Respond to the source request."
-  (let ((result (ignore-errors 
-		  (cl-twit:update (response-for-source-request bot mention)))))
+  (let ((result (handler-case
+		  (cl-twit:update (response-for-source-request bot mention))
+		  (error (err) 
+		    (report-error "~a - ~a~%" bot err)
+		    nil))))
     (when result
       (update-id (most-recent-mention-id bot) result))))
 
@@ -160,8 +236,11 @@
 
 (defmethod respond-to-mention ((bot microblog-bot) mention)
   "Respond to the mention object in some way."
-  (let ((result (ignore-errors 
-		  (cl-twit:update (response-for-mention bot mention)))))
+  (let ((result (handler-case 
+		    (cl-twit:update (response-for-mention bot mention))
+		  (error (err) 
+		    (report-error "~a - ~a~%" bot err)
+		    nil))))
     (when result
       (update-id (most-recent-mention-id bot) result))))
 
@@ -185,10 +264,12 @@
 			   (cl-twit:status-user mention))
 			 (ignore-messages-from bot)
 			 :test #'string=))
-	  (ignore-errors 
+	  (handler-case
 	      (if (search "!source" (cl-twit:status-text mention))
 		  (respond-to-source-request bot mention)
-		  (respond-to-mention bot mention))))))))
+		  (respond-to-mention bot mention))
+	    (error (err) 
+	      (report-error "~a - ~a~%" bot err))))))))
 
 (defmethod daily-task ((bot microblog-bot))
   "Performed every day at midnight."
@@ -199,11 +280,15 @@
   (multiple-value-bind (days seconds) (floor (get-universal-time) %one-day)
     (when (and (> days (previous-day bot))
 	       (> seconds (* (daily-task-hour bot) %one-hour)))
-      (ignore-errors
-	(daily-task bot)
-	;; Only update if successful
-	;; Is this OK?
-	(setf (previous-day bot) days)))))
+      (debug-msg "Running daily task for bot ~a" bot )
+      (handler-case
+	  (progn
+	    (daily-task bot)
+	    ;; Only update if successful
+	    ;; Is this OK?
+	    (setf (previous-day bot) days))
+	(error (err) 
+	  (report-error "~a - ~a~%" bot err))))))
 
 (defmethod constant-task ((bot microblog-bot))
   "Performed every time the bot wakes up."
@@ -214,23 +299,29 @@
   nil)
 
 (defmethod manage-intermittent-task ((bot microblog-bot))
-  "Run the task or update the wait time."  
+  "Run the task or update the wait time."
+  (debug-msg "Wait remaining for bot ~a is ~a" bot (wait-remaining bot))
   (if (<= (wait-remaining bot) 0)
-      (progn
-	(ignore-errors
-	    (intermittent-task bot))
-	(reset-wait bot)))
-  (setf (wait-remaining bot)
-	(- (wait-remaining bot)
-	   *bot-sleep-time*)))
+      (handler-case
+	  (progn
+	    (intermittent-task bot)
+	    (reset-wait bot))
+	(error (err) 
+	  (report-error "~a - ~a~%" bot err)))
+      (setf (wait-remaining bot)
+	    (- (wait-remaining bot)
+	       *bot-sleep-time*))))
 
 (defmethod run-bot-once ((bot microblog-bot))
-  (ignore-errors
-       (with-microblog-user bot
-	 (manage-daily-task bot)
-	 (constant-task bot)
-	 (respond-to-mentions bot)
-	 (manage-intermittent-task bot))))
+  (debug-msg "Running bot once ~a" bot)
+  (handler-case
+      (with-microblog-user bot
+	(manage-daily-task bot)
+	(constant-task bot)
+	(respond-to-mentions bot)
+	(manage-intermittent-task bot))
+    (error (err) 
+      (report-error "~a - ~a~%" bot err))))
 
 (defmethod run-bot ((bot microblog-bot))
   "Loop forever responding to mentions & occasionaly performing periodic-task."
