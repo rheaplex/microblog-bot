@@ -111,10 +111,11 @@
   (setf *max-wait-time* %max-wait-live)
   (setf *bot-sleep-time* %bot-sleep-time-live)
   (setf (symbol-function 'post) #'post-live)
-  (setf (symbol-function 'debug-msg) #'debug-msg-debug))
+  (setf (symbol-function 'debug-msg) #'debug-msg-live))
 
 (eval-when (:execute)
-  (set-live))
+  (setf (symbol-function 'post) #'post-live)
+  (setf (symbol-function 'debug-msg) #'debug-msg-live))
 
 (defun report-error (&rest args)
   (apply #'format t args))
