@@ -78,40 +78,27 @@
       (get-decoded-time)
     (format nil "~a-~a-~a ~a:~a:~a" year month date hour minute second)))
 
-(defun post-live (message)
-  (cl-twit:update message))
+(defun post (message)
+  (if *live*
+      (cl-twit:update message)
+      (format t "~a - ~a~%" (time-string) message)))
 
-(defun post-debug (message)
-  (format t "~a - ~a~%" (time-string) message))
-
-(defun debug-msg-live (&rest args)
-  "Ignore"
-  nil)
-
-(defun debug-msg-debug (&rest args)
-  "Format the message to stdout"
-  (apply #'format t (concatenate 'string "~a - " (car args) "~%") 
-	 (time-string) (cdr args)))
-
-;; Placeholders
-(defun post (message))
-(defun debug-msg (&rest args))
+(defun debug-msg (&rest args)
+  (unless *live*
+      (apply #'format t (concatenate 'string "~a - " (car args) "~%") 
+	 (time-string) (cdr args))))
 
 (defun set-debug ()
   (setf *live* nil)
   (setf *min-wait-time* %min-wait-debug)
   (setf *max-wait-time* %max-wait-debug)
-  (setf *bot-sleep-time* %bot-sleep-time-debug)
-  (setf (symbol-function 'post) #'post-debug)
-  (setf (symbol-function 'debug-msg) #'debug-msg-debug))
+  (setf *bot-sleep-time* %bot-sleep-time-debug))
 
 (defun set-live ()
   (setf *live* t)
   (setf *min-wait-time* %min-wait-live)
   (setf *max-wait-time* %max-wait-live)
-  (setf *bot-sleep-time* %bot-sleep-time-live)
-  (setf (symbol-function 'post) #'post-live)
-  (setf (symbol-function 'debug-msg) #'debug-msg-live))
+  (setf *bot-sleep-time* %bot-sleep-time-live))
 
 (eval-when (:execute)
   (setf (symbol-function 'post) #'post-live)
@@ -226,9 +213,9 @@
 (defmethod respond-to-source-request ((bot microblog-bot) mention)
   "Respond to the source request."
   (let ((result (handler-case
-		  (cl-twit:update (response-for-source-request bot mention))
+		  (post (response-for-source-request bot mention))
 		  (error (err) 
-		    (report-error "~a - ~a~%" bot err)
+		    (report-error "respond-to-source-request ~a - ~a~%" bot err)
 		    nil))))
     (when result
       (update-id (most-recent-mention-id bot) result))))
@@ -241,13 +228,13 @@
 
 (defmethod respond-to-mention ((bot microblog-bot) mention)
   "Respond to the mention object in some way."
-  (let ((result (handler-case 
-		    (cl-twit:update (response-for-mention bot mention))
-		  (error (err) 
-		    (report-error "~a - ~a~%" bot err)
-		    nil))))
-    (when result
-      (update-id (most-recent-mention-id bot) result))))
+  (let ((response (response-for-mention bot mention)))
+    (if response
+	(handler-case
+	    (post response)
+	  (error (err) 
+	    (report-error "respond-to-mention ~a - ~a~%" bot err)
+	    nil)))))
 
 (defmethod filter-mentions ((bot microblog-bot) mentions)
   "Make sure only one mention from each user is listed."
@@ -259,22 +246,41 @@
 				(cl-twit:user-screen-name 
 				 (cl-twit:status-user b))))))
 
+(defmethod should-ignore ((bot microblog-bot) message &optional (default t))
+  "Check whether the bot should ignore the message"
+  (handler-case
+      (find (cl-twit:user-screen-name
+	     (cl-twit:status-user message))
+	    (ignore-messages-from bot)
+	    :test #'string=)
+    (error (err) 
+      (report-error "should-ignore ~a - ~a~%" bot err)
+      default)))
+
+(defmethod new-replies ((bot microblog-bot))
+  "Get any new replies for the bot's account, or nil"
+  (handler-case
+      (cl-twit:m-replies :since-id 
+			 (most-recent-mention-id bot))
+    (error (err) 
+      (report-error "new-replies ~a - ~a~%" bot err)
+      nil)))
+
 (defmethod respond-to-mentions ((bot microblog-bot))
   "Respond to new mentions since mentions were last processed."
   (assert (not (= (most-recent-mention-id bot) 0)))
-  (let ((replies (cl-twit:m-replies :since-id (most-recent-mention-id bot))))
+  (let ((replies (new-replies bot)))
     (when replies
       (dolist (mention (filter-mentions bot replies))
-	(when (not (find (cl-twit:user-screen-name 
-			   (cl-twit:status-user mention))
-			 (ignore-messages-from bot)
-			 :test #'string=))
+	(when (not (should-ignore bot mention t))
 	  (handler-case
 	      (if (search "!source" (cl-twit:status-text mention))
 		  (respond-to-source-request bot mention)
 		  (respond-to-mention bot mention))
 	    (error (err) 
-	      (report-error "~a - ~a~%" bot err))))))))
+	      (report-error "respond-to-mentions ~a - ~a~%" bot err))))
+	;; If sending fails, we still update
+	(update-id (most-recent-mention-id bot) mention)))))
 
 (defmethod daily-task ((bot microblog-bot))
   "Performed every day at midnight."
@@ -289,11 +295,10 @@
       (handler-case
 	  (progn
 	    (daily-task bot)
-	    ;; Only update if successful
-	    ;; Is this OK?
+	    ;; Only update if successful. Is this OK?
 	    (setf (previous-day bot) days))
 	(error (err) 
-	  (report-error "~a - ~a~%" bot err))))))
+	  (report-error "manage-daily-task ~a - ~a~%" bot err))))))
 
 (defmethod constant-task ((bot microblog-bot))
   "Performed every time the bot wakes up."
@@ -306,13 +311,13 @@
 (defmethod manage-intermittent-task ((bot microblog-bot))
   "Run the task or update the wait time."
   (debug-msg "Wait remaining for bot ~a is ~a" bot (wait-remaining bot))
-  (if (<= (wait-remaining bot) 0)
+ (if (<= (wait-remaining bot) 0)
       (handler-case
 	  (progn
 	    (intermittent-task bot)
 	    (reset-wait bot))
 	(error (err) 
-	  (report-error "~a - ~a~%" bot err)))
+	  (report-error "manage-intermittent-task ~a - ~a~%" bot err)))
       (setf (wait-remaining bot)
 	    (- (wait-remaining bot)
 	       *bot-sleep-time*))))
@@ -326,13 +331,14 @@
 	(respond-to-mentions bot)
 	(manage-intermittent-task bot))
     (error (err) 
-      (report-error "~a - ~a~%" bot err))))
+      (report-error "run-bot-once ~a - ~a~%" bot err))))
 
 (defmethod run-bot ((bot microblog-bot))
   "Loop forever responding to mentions & occasionaly performing periodic-task."
   (loop 
      (run-bot-once bot)
      (sleep *bot-sleep-time*)))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; User-following bot
@@ -357,7 +363,9 @@
   (with-microblog-user bot
     (when (= (most-recent-update-id bot) 0)
       (setf (most-recent-update-id bot)
-	    (current-user-posts-after-id)))))
+	    (current-user-posts-after-id))))
+  (debug-msg "Initialized bot ~a most-recent-mention-update ~a" 
+	     bot(previous-day bot) (most-recent-update-id bot)))
 
 (defmethod response-for-message ((bot microblog-follower-bot) message)
   "Response for the message object, or nil not to respond."
@@ -365,6 +373,7 @@
 
 (defmethod respond-to-message ((bot microblog-follower-bot) message)
   "Respond to the message object in some way."
+  (debug-msg "Responding to message ~a" message)
   (let ((response (response-for-message bot message)))
     (when response
       (post response))))
@@ -376,16 +385,21 @@
 (defmethod respond-to-messages ((bot microblog-follower-bot))
   "Respond to new messages since messages were last processed."
   (assert (not (= (most-recent-update-id bot) 0)))
+  (debug-msg "Responding to messages")
   (let ((messages 
-	 (or (ignore-errors
-	       (cl-twit:m-user-timeline :id (follow-id bot) 
-					:since-id (most-recent-update-id bot)))
-	     nil)))
+	 (handler-case
+	     (cl-twit:m-user-timeline :id (follow-id bot) 
+				      :since-id (most-recent-update-id bot))
+	   (error (err) 
+	     (report-error "respond-to-messages ~a - ~a~%" bot err)
+	     nil))))
     (when messages
+      (debug-msg "Messages to respond to ~a" messages)
       (dolist (message (filter-messages bot messages))
-	(respond-to-message bot message))
-      (setf (most-recent-update-id bot)
-	    (cl-twit::get-newest-id messages)))))
+	(respond-to-message bot message)
+	;; If sending fails, we still update
+	(update-id (most-recent-update-id bot) message))))
+  (debug-msg "Most recent message after "))
 
 (defmethod run-bot-once ((bot microblog-follower-bot))
   "Run a single iteration of the bot main loop. For running as a cron job."
