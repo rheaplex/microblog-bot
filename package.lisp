@@ -21,6 +21,7 @@
   (:export set-microblog-service
 	   set-debug
 	   set-live
+	   report-error
 	   microblog-user
 	   with-microblog-user
 	   post
@@ -32,6 +33,7 @@
 	   filter-mentions
 	   constant-task
 	   intermittent-task
+	   daily-task
 	   microblog-follower-bot
 	   filter-messages
 	   run-bot-once
