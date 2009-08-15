@@ -28,8 +28,7 @@
 	   microblog-bot
 	   response-for-mention
 	   response-for-source-request
-	   respond-to-message
-	   response-for-message
+	   response-for-post
 	   filter-mentions
 	   constant-task
 	   intermittent-task
