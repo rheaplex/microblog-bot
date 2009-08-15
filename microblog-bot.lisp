@@ -220,9 +220,7 @@
 
 (defmethod check-@replies-after-id ((bot microblog-bot))
   "Get the exclusive lower bound for replies to the user to check"
-  ;; Wasteful, as we only want the most recent id
-  ;; If the user hasn't posted yet, start with the most recent global id
-  (or (cl-twit::get-newest-id (cl-twit:m-replies))
+  (or (cl-twit::get-newest-id (cl-twit:m-user-timeline))
       (cl-twit::get-newest-id (cl-twit:m-public-timeline))))
 
 (defmethod initialize-instance :after ((bot microblog-bot) &key)
@@ -271,6 +269,7 @@
 
 (defmethod new-@replies ((bot microblog-bot))
   "Get any new replies for the bot's account, or nil"
+  (debug-msg "new-@replies after ~a" (last-handled-@reply bot))
   (handler-case
       (sort (cl-twit:m-replies :since-id 
 			 (last-handled-@reply bot))
@@ -283,23 +282,25 @@
   "Is the message a source request?"
   (search "!source" (cl-twit:status-text @reply)))
 
-(defmethod respond-to-@replys ((bot microblog-bot))
-  "Respond to new @replys since @replys were last processed"
+(defmethod respond-to-@replies ((bot microblog-bot))
+  "Respond to new @replies since @replies were last processed"
   (assert (not (eq (last-handled-@reply bot) 0)))
   (let ((@replies (filter-@replies bot (new-@replies bot))))
-    (dolist (@reply @replies)
-      (when (not (should-ignore bot @reply t))
-	(handler-case
+    (when @replies 
+      (dolist (@reply @replies)
+	(when (not (should-ignore bot @reply t))
+	  (handler-case
 	    (let ((response (if (source-request-p @reply)
 				(response-for-source-request bot @reply)
 				(response-for-@reply bot @reply))))
 	      (when response
 		(post response)))
-	  (error (err)
-	    (report-error "respond-to-@replys ~a - ~a~%" bot err)))))
-    ;; If any responses failed, they will be skipped
-    (setf (last-handled-@reply bot)
-	  (cl-twit::get-newest-id @replies))))
+	    (error (err)
+	      (report-error "respond-to-@replies ~a - ~a~%" bot err)))))
+      ;; If any responses failed, they will be skipped
+      ;; This will set to null if replies are null, so make sure it's in a when 
+      (setf (last-handled-@reply bot)
+	    (cl-twit::get-newest-id @replies)))))
 
 (defmethod daily-task ((bot microblog-bot))
   "Performed every day at midnight"
@@ -347,12 +348,12 @@
       (with-microblog-user bot
 	(manage-daily-task bot)
 	(constant-task bot)
-	(respond-to-@replys bot)
+	(respond-to-@replies bot)
 	(manage-intermittent-task bot))
     (error (err) (report-error "run-bot-once ~a - ~a~%" bot err))))
 
 (defmethod run-bot ((bot microblog-bot))
-  "Loop forever responding to @replys & occasionaly performing periodic-task"
+  "Loop forever responding to @replies & occasionaly performing periodic-task"
   (loop 
      (run-bot-once bot)
      (sleep *sleep-time*)))
@@ -364,26 +365,21 @@
 
 (defclass microblog-follower-bot (microblog-bot)
   ((last-handled-post :accessor last-handled-post 
-			  :initarg :last-handled-post
-			  :initform 0)
+		      :initarg :last-handled-post
+		      :initform 0)
    (follow-id :accessor follow-id 
 	      :initarg :follow-id)))
 
 (defmethod current-user-posts-after-id ((bot microblog-follower-bot))
   "Get the exclusive lower bound for replies to the user to check"
-  ;; Wasteful, as we only want the most recent id
-  ;; If the user hasn't posted yet, make a post and get it's id
-  (let ((post-id (cl-twit::get-newest-id (cl-twit:m-user-timeline))))
-   (unless post-id
-     (setf post-id (parse-integer (cl-twit::id (post "Hello world")))))
-   post-id))
+  (or (cl-twit::get-newest-id (cl-twit:m-user-timeline))
+      (cl-twit::get-newest-id (cl-twit:m-public-timeline))))
 
 (defmethod initialize-instance :after ((bot microblog-follower-bot) &key)
   "Set up the bot's state"
   (with-microblog-user bot
-    (when (= (last-handled-post bot) 0)
-      (setf (last-handled-post bot)
-	    (current-user-posts-after-id bot))))
+    (setf (last-handled-post bot)
+	  (current-user-posts-after-id bot)))
   (debug-msg "Initialized bot ~a most-recent-@reply-update ~a" 
 	     bot (last-handled-post bot)))
 
@@ -423,6 +419,7 @@
       (dolist (post (filter-posts bot posts))
 	(respond-to-post bot post))
       ;; If any posts weren't processed, they will be skipped
+      ;; This will set to null if posts are null, so make sure it's in a when
       (setf (last-handled-post bot)
 	    (cl-twit::get-newest-id posts))))
   (debug-msg "Most recent post after ~a" (last-handled-post bot)))
