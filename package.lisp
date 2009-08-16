@@ -23,6 +23,8 @@
 	   set-live
 	   report-error
 	   microblog-user
+	   user-nickname
+	   user-password
 	   with-microblog-user
 	   post
 	   microblog-bot
@@ -36,4 +38,6 @@
 	   microblog-follower-bot
 	   filter-messages
 	   run-bot-once
-	   run-bot))
+	   run-bot
+	   test-run-bot-once
+	   test-run-bot))

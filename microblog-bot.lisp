@@ -26,62 +26,19 @@
 ;; Useful constants
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Constants for live/test configuration
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defconstant %min-wait-live (* 60 60 1)
-  "The default minimum time in seconds between posts used by live bots")
-
-(defconstant %max-wait-live (* 60 60 4)
-  "The default maximum time between posts used by live bots")
-
-(defconstant %min-wait-debug 1
-  "The default minimum time in seconds between posts used by test bots")
-
-(defconstant %max-wait-debug 2
-  "The default maximum time in seconds between posts used by test bots")
-
-(defconstant %sleep-time-live 150
-  "The sleep time used by live bots")
-
-(defconstant %sleep-time-debug 1
-  "The sleep time used by debug bots")
-
-(defconstant %one-hour-live (* 60 60)
-  "One hour in seconds for live")
-
-(defconstant %one-day-live (* %one-hour-live 24)
-  "One day in seconds for live")
-
-(defconstant %one-hour-debug 1
-  "One hour in seconds for debug")
-
-(defconstant %one-day-debug 24
-  "One day in seconds for debug")
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Configuration for live/debug
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; It may seem strange to have days and hours as variables
-;; This is so they can be set to fast-forward values for testing
-
-(defvar *one-hour* %one-hour-live
+(defconstant %one-hour (* 60 60)
   "One hour in seconds")
 
-(defvar *one-day* %one-day-live
+(defconstant %one-day (* 24 %one-hour)
   "One day in seconds")
 
-(defvar *min-wait-time* %min-wait-live
+(defconstant %min-wait-time %one-hour
   "The default minimum time in seconds between posts used by bots")
 
-(defvar *max-wait-time* %max-wait-live
+(defconstant %max-wait-time (* %one-hour 3)
   "The default maximum time in seconds between posts used by bots")
 
-(defvar *sleep-time* %sleep-time-live
+(defconstant %sleep-time 180
   "How long to wait between each check")
 
 
@@ -101,42 +58,21 @@
       (get-decoded-time)
     (format nil "~a-~a-~a ~a:~a:~a" year month date hour minute second)))
 
-(defun post (message)
-  "Post to the server if live, or just print if not"
-  (when *post-to-server*
-      (cl-twit:m-update message))
-  (when *print-debug-messages*
-    (format t "~a - ~a~%" (time-string) message)))
-
 (defun debug-msg (&rest args)
   "Print to stdout if debugging, or ignore if not"
   (if *print-debug-messages*
       (apply #'format t (concatenate 'string "~a - " (car args) "~%") 
 	 (time-string) (cdr args))))
 
-(defmethod set-debug (&key (post nil))
+(defmethod set-debug (&key (post nil) (msgs t))
   "Set the state of the library to debugging, with posting set by the keyword"
-  (setf *print-debug-messages* t)
-  (setf *post-to-server* post)
-  (setf *one-hour* %one-hour-debug)
-  (setf *one-day* %one-day-debug)
-  (setf *min-wait-time* %min-wait-debug)
-  (setf *max-wait-time* %max-wait-debug)
-  (setf *sleep-time* %sleep-time-debug))
+  (setf *print-debug-messages* msgs)
+  (setf *post-to-server* post))
 
 (defun set-live ()
-  "Set the state of the library to live. Make sure you re-make any objects"
+  "Set the state of the library to live"
   (setf *print-debug-messages* nil)
-  (setf *post-to-server* t)
-  (setf *one-hour* %one-hour-live)
-  (setf *one-day* %one-day-live)
-  (setf *min-wait-time* %min-wait-live)
-  (setf *max-wait-time* %max-wait-live)
-  (setf *sleep-time* %sleep-time-live))
-
-(eval-when (:execute)
-  (setf (symbol-function 'post) #'post-live)
-  (setf (symbol-function 'debug-msg) #'debug-msg-live))
+  (setf *post-to-server* t))
 
 (defun report-error (&rest args)
   "Print the error to stdout"
@@ -152,6 +88,13 @@
   (debug-msg "Setting server for ~a to ~a" from-source server-url)
   (setf twit::*source* from-source)
   (setf twit::*base-url* server-url))
+
+(defmethod post (message)
+  "Post to the server if live, or just print if not"
+  (when *print-debug-messages*
+    (format t "~a - ~a~%" (time-string) message))
+  (when *post-to-server*
+      (cl-twit:m-update message)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -176,6 +119,14 @@
      ;; with-session doesn't currently do this, remove if it ever does.
      (cl-twit:logout)))
 
+(defun user-id-for-screen-name (name)
+  ;; This is ambiguous. It would be better to use screen_name when supported
+  (let ((user-info (or (cl-twit:m-user-show :id name)
+		    (error "Can't get user info in user-id-for-screen-name"))))
+    (assert user-info)
+    (or (cl-twit::id user-info)
+	(error "Can't get user id in user-id-for-screen-name"))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Basic bot
@@ -186,10 +137,10 @@
 (defclass microblog-bot (microblog-user)
   ((min-wait :accessor min-wait 
 	     :initarg :min-wait
-	     :initform *min-wait-time*)
+	     :initform %min-wait-time)
    (max-wait :accessor max-wait 
 	     :initarg :max-wait 
-	     :initform *max-wait-time*)
+	     :initform %max-wait-time)
    (wait-remaining :accessor wait-remaining 
 		   :initarg :wait-remaining
 		   :initform 0)
@@ -203,10 +154,10 @@
 	       :initarg :source-url
 	       :allocation :class
 	       :initform nil)
-   (last-handled-@reply :accessor last-handled-@reply 
-			:initarg :last-handled-@reply 
+   (last-handled-reply :accessor last-handled-reply 
+			:initarg :last-handled-reply 
 			:initform 0)
-   (ignore-@replies-from :accessor ignore-@replies-from 
+   (ignore-replies-from :accessor ignore-replies-from
 			 :initarg :ignore
 			 :initform '())))
 
@@ -218,7 +169,7 @@
 		      (min-wait bot)))))
     (debug-msg "Resetting wait period for ~a to ~a" bot (wait-remaining bot)))
 
-(defmethod check-@replies-after-id ((bot microblog-bot))
+(defmethod replies-after-id ((bot microblog-bot))
   "Get the exclusive lower bound for replies to the user to check"
   (or (cl-twit::get-newest-id (cl-twit:m-user-timeline))
       (cl-twit::get-newest-id (cl-twit:m-public-timeline))))
@@ -227,28 +178,28 @@
   "Set up the bot's state"
   (assert (source-url bot))
   (with-microblog-user bot
-    (setf (previous-day bot) (floor (get-universal-time) *one-day*))
-      (setf (last-handled-@reply bot)
-	    (check-@replies-after-id bot)))
-    (debug-msg "Initialized bot ~a previous-day ~a most-recent-@reply ~a" 
-	       bot (previous-day bot) (last-handled-@reply bot)))
+    (setf (previous-day bot) (floor (get-universal-time) %one-day))
+      (setf (last-handled-reply bot)
+	    (replies-after-id bot)))
+    (debug-msg "Initialized bot ~a previous-day ~a most-recent-reply ~a" 
+	       bot (previous-day bot) (last-handled-reply bot)))
 
-(defmethod response-for-source-request ((bot microblog-bot) @reply)
+(defmethod response-for-source-request ((bot microblog-bot) reply)
   "Response for the source request"
   (format nil "@~a Hi! You can get my source here: ~a" 
 	  (cl-twit:user-screen-name 
-	   (cl-twit:status-user @reply))
+	   (cl-twit:status-user reply))
 	  (source-url bot)))
 
-(defmethod response-for-@reply ((bot microblog-bot) @reply)
-  "Response for the @reply object"
+(defmethod response-for-reply ((bot microblog-bot) reply)
+  "Response for the reply object"
   (format nil "@~a Hi!" 
 	  (cl-twit:user-screen-name 
-	   (cl-twit:status-user @reply))))
+	   (cl-twit:status-user reply))))
 
-(defmethod filter-@replies ((bot microblog-bot) @replies)
-  "Make sure only one @reply from each user is listed"
-  (remove-duplicates @replies 
+(defmethod filter-replies ((bot microblog-bot) replies)
+  "Make sure only one reply from each user is listed"
+  (remove-duplicates replies 
 		     :test #'(lambda (a b)
 			       (string=
 				(cl-twit:user-screen-name 
@@ -261,46 +212,47 @@
   (handler-case
       (find (cl-twit:user-screen-name
 	     (cl-twit:status-user message))
-	    (ignore-@replies-from bot)
+	    (ignore-replies-from bot)
 	    :test #'string=)
     (error (err) 
       (report-error "should-ignore ~a - ~a~%" bot err)
       default)))
 
-(defmethod new-@replies ((bot microblog-bot))
+(defmethod new-replies ((bot microblog-bot))
   "Get any new replies for the bot's account, or nil"
-  (debug-msg "new-@replies after ~a" (last-handled-@reply bot))
+  (debug-msg "new-replies after ~a" (last-handled-reply bot))
   (handler-case
       (sort (cl-twit:m-replies :since-id 
-			 (last-handled-@reply bot))
+			 (last-handled-reply bot))
 	    #'string< :key #'cl-twit::id)
     (error (err) 
       (report-error "new-replies ~a - ~a~%" bot err)
       nil)))
 
-(defun source-request-p (@reply)
+(defun source-request-p (reply)
   "Is the message a source request?"
-  (search "!source" (cl-twit:status-text @reply)))
+  (search "!source" (cl-twit:status-text reply)))
 
-(defmethod respond-to-@replies ((bot microblog-bot))
-  "Respond to new @replies since @replies were last processed"
-  (assert (not (eq (last-handled-@reply bot) 0)))
-  (let ((@replies (filter-@replies bot (new-@replies bot))))
-    (when @replies 
-      (dolist (@reply @replies)
-	(when (not (should-ignore bot @reply t))
+(defmethod respond-to-replies ((bot microblog-bot))
+  "Respond to new replies since replies were last processed"
+  (assert (and (last-handled-reply bot)
+	       (not (eq (last-handled-reply bot) 0))))
+  (let ((replies (filter-replies bot (new-replies bot))))
+    (when replies 
+      (dolist (reply replies)
+	(when (not (should-ignore bot reply t))
 	  (handler-case
-	    (let ((response (if (source-request-p @reply)
-				(response-for-source-request bot @reply)
-				(response-for-@reply bot @reply))))
+	    (let ((response (if (source-request-p reply)
+				(response-for-source-request bot reply)
+				(response-for-reply bot reply))))
 	      (when response
 		(post response)))
 	    (error (err)
-	      (report-error "respond-to-@replies ~a - ~a~%" bot err)))))
+	      (report-error "respond-to-replies ~a - ~a~%" bot err)))))
       ;; If any responses failed, they will be skipped
       ;; This will set to null if replies are null, so make sure it's in a when 
-      (setf (last-handled-@reply bot)
-	    (cl-twit::get-newest-id @replies)))))
+      (setf (last-handled-reply bot)
+	    (cl-twit::get-newest-id replies)))))
 
 (defmethod daily-task ((bot microblog-bot))
   "Performed every day at midnight"
@@ -308,9 +260,9 @@
 
 (defmethod manage-daily-task ((bot microblog-bot))
   "If it's a new day and after the appointed hour, perform the task"
-  (multiple-value-bind (days seconds) (floor (get-universal-time) *one-day*)
+  (multiple-value-bind (days seconds) (floor (get-universal-time) %one-day)
     (when (and (> days (previous-day bot))
-	       (> seconds (* (daily-task-hour bot) *one-hour*)))
+	       (> seconds (* (daily-task-hour bot) %one-hour)))
       (debug-msg "Running daily task for bot ~a" bot )
       (handler-case
 	  (progn
@@ -340,7 +292,7 @@
 	  (report-error "manage-intermittent-task ~a - ~a~%" bot err)))
       (setf (wait-remaining bot)
 	    (- (wait-remaining bot)
-	       *sleep-time*))))
+	       %sleep-time))))
 
 (defmethod run-bot-once ((bot microblog-bot))
   (debug-msg "Running bot once ~a" bot)
@@ -348,15 +300,15 @@
       (with-microblog-user bot
 	(manage-daily-task bot)
 	(constant-task bot)
-	(respond-to-@replies bot)
+	(respond-to-replies bot)
 	(manage-intermittent-task bot))
     (error (err) (report-error "run-bot-once ~a - ~a~%" bot err))))
 
 (defmethod run-bot ((bot microblog-bot))
-  "Loop forever responding to @replies & occasionaly performing periodic-task"
+  "Loop forever responding to replies & occasionaly performing periodic-task"
   (loop 
      (run-bot-once bot)
-     (sleep *sleep-time*)))
+     (sleep %sleep-time)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -367,20 +319,22 @@
   ((last-handled-post :accessor last-handled-post 
 		      :initarg :last-handled-post
 		      :initform 0)
-   (follow-id :accessor follow-id 
-	      :initarg :follow-id)))
+   (follow-id :accessor follow-id)))
 
 (defmethod current-user-posts-after-id ((bot microblog-follower-bot))
   "Get the exclusive lower bound for replies to the user to check"
   (or (cl-twit::get-newest-id (cl-twit:m-user-timeline))
       (cl-twit::get-newest-id (cl-twit:m-public-timeline))))
 
-(defmethod initialize-instance :after ((bot microblog-follower-bot) &key)
-  "Set up the bot's state"
+(defmethod initialize-instance :after ((bot microblog-follower-bot) 
+				       &key (follow-screen-name nil))
+  "Set up the bot's state" 
+  (when follow-screen-name
+    (setf (follow-id bot) (user-id-for-screen-name follow-screen-name)))
   (with-microblog-user bot
     (setf (last-handled-post bot)
 	  (current-user-posts-after-id bot)))
-  (debug-msg "Initialized bot ~a most-recent-@reply-update ~a" 
+  (debug-msg "Initialized bot ~a most-recent-reply-update ~a" 
 	     bot (last-handled-post bot)))
 
 (defmethod response-for-post ((bot microblog-follower-bot) post)
@@ -411,7 +365,8 @@
 
 (defmethod respond-to-posts ((bot microblog-follower-bot))
   "Respond to new posts since posts were last processed"
-  (assert (not (= (last-handled-post bot) 0)))
+  (assert (and (last-handled-post bot)
+	       (not (= (last-handled-post bot) 0))))
   (debug-msg "Responding to posts")
   (let ((posts (new-posts bot)))
     (when posts
@@ -429,3 +384,33 @@
     (call-next-method)
     (with-microblog-user bot
       (respond-to-posts bot)))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Testing
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defmethod test-run-bot-once ((bot microblog-bot) &key (i 0) 
+			      (post nil) (daily 3) (periodic 2) (fun nil) 
+			      (msgs t))
+  (assert (and (not (search "identi.ca" twit::*base-url*))
+	       (not (search "twitter.com" twit::*base-url*))))
+  (set-debug :post post :msgs msgs)
+  (with-microblog-user bot
+    (when fun
+      (apply fun bot i))
+    ;; Run the periodic task every periodic iterations
+    (when (= (mod i periodic) 0)
+      (setf (wait-remaining bot) 0))
+    ;; Run the daily task every daily iterations
+    (when (= (mod i daily) 0)
+      (setf (previous-day bot) 0))
+    (run-bot-once bot)))
+
+(defmethod test-run-bot ((bot microblog-bot) iterations 
+		     &key (post nil) (daily 3) (periodic 2) (fun nil) (msgs t))
+  "Run the bot the given number of times, running daily & priodic tasks as set"
+  (setf (daily-task-hour bot) 0)
+  (dotimes (i iterations)
+    (test-run-bot-once bot i :post post :daily daily :periodic periodic
+		       :fun fun :msgs msgs)))
