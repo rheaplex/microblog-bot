@@ -89,12 +89,12 @@
   (setf twit::*source* from-source)
   (setf twit::*base-url* server-url))
 
-(defmethod post (message)
+(defmethod post (message &key (in-reply-to-status-id nil))
   "Post to the server if live, or just print if not"
   (when *print-debug-messages*
     (format t "~a - ~a~%" (time-string) message))
   (when *post-to-server*
-      (cl-twit:m-update message)))
+      (cl-twit:m-update message :in-reply-to-status-id in-reply-to-status-id)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -107,18 +107,6 @@
    (user-password :reader user-password
 		  :initarg :password)))
 
-(defmacro with-microblog-user (user &body body)
-  "Log in, execture the body, log out"
-  `(progn
-     (cl-twit:with-session ((user-nickname ,user) 
-			    (user-password ,user) 
-			    :authenticatep t)
-       (debug-msg "With user ~a" ,user)     
-       ,@body)
-       (debug-msg "Finished with user ~a" ,user)     
-     ;; with-session doesn't currently do this, remove if it ever does.
-     (cl-twit:logout)))
-
 (defun user-id-for-screen-name (name)
   ;; This is ambiguous. It would be better to use screen_name when supported
   (let ((user-info (or (cl-twit:m-user-show :id name)
@@ -126,6 +114,20 @@
     (assert user-info)
     (or (cl-twit::id user-info)
 	(error "Can't get user id in user-id-for-screen-name"))))
+
+(defmacro with-microblog-user (user &body body)
+  "Log in, execture the body, log out"
+  (let ((result (gensym)))
+    `(progn
+       (cl-twit:with-session ((user-nickname ,user) 
+			      (user-password ,user) 
+			      :authenticatep t)
+	 (debug-msg "With user ~a" ,user)
+	 (let ((,result (progn ,@body)))
+	   (debug-msg "Finished with user ~a" ,user) 
+	   ;; with-session doesn't currently do this, remove if it ever does.
+	   (cl-twit:logout)
+	   ,result)))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -246,7 +248,7 @@
 				(response-for-source-request bot reply)
 				(response-for-reply bot reply))))
 	      (when response
-		(post response)))
+		(post response :in-reply-to-status (cl-twit::status-id reply))))
 	    (error (err)
 	      (report-error "respond-to-replies ~a - ~a~%" bot err)))))
       ;; If any responses failed, they will be skipped
