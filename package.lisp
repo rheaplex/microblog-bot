@@ -14,7 +14,7 @@
 ;; You should have received a copy of the GNU Affero General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-(defpackage #:microblog-bot
+(defpackage microblog-bot
   (:documentation
    "Microblog bot creation support.")
   (:use #:common-lisp #:cl-twit)
