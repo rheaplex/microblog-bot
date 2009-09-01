@@ -14,7 +14,10 @@
 ;; You should have received a copy of the GNU Affero General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-(asdf:defsystem #:microblog-bot
+(defpackage microblog-bot-system (:use #:cl #:asdf))
+(in-package :microblog-bot-system)
+
+(defsystem "microblog-bot"
   :depends-on (#:cl-twit)
   :serial t
   :components ((:file "package")

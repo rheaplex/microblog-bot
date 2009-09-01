@@ -19,7 +19,7 @@
 ;; Package
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(in-package #:microblog-bot)
+(in-package :microblog-bot)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -107,6 +107,10 @@
    (user-password :reader user-password
 		  :initarg :password)))
 
+(defmethod coherent? ((object microblog-user))
+  "Check whether the object is in a coherent state"
+  (and (user-nickname object) (user-password object)))
+
 (defun user-id-for-screen-name (name)
   ;; This is ambiguous. It would be better to use screen_name when supported
   (let ((user-info (or (cl-twit:m-user-show :id name)
@@ -162,6 +166,17 @@
    (ignore-replies-from :accessor ignore-replies-from
 			 :initarg :ignore
 			 :initform '())))
+
+(defmethod coherent? ((object microblog-bot))
+  "Check whether the object is in a coherent state"
+  (and (call-next-method)
+       (> (min-wait object) 0)
+       (>= (max-wait object) (min-wait object))
+       (>= (wait-remaining object) 0)
+       (< (wait-remaining object) (max-wait object))
+       (>= 0 (daily-task-hour object) 23)
+       (source-url object)
+       (last-handled-reply object)))
 
 (defmethod reset-wait ((bot microblog-bot))
   "Set the time until next execution to between min-wait..max-wait"
@@ -237,24 +252,29 @@
 
 (defmethod respond-to-replies ((bot microblog-bot))
   "Respond to new replies since replies were last processed"
-  (assert (and (last-handled-reply bot)
-	       (not (eq (last-handled-reply bot) 0))))
-  (let ((replies (filter-replies bot (new-replies bot))))
-    (when replies 
-      (dolist (reply replies)
-	(when (not (should-ignore bot reply t))
-	  (handler-case
-	    (let ((response (if (source-request-p reply)
-				(response-for-source-request bot reply)
-				(response-for-reply bot reply))))
-	      (when response
-		(post response :in-reply-to-status (cl-twit::status-id reply))))
-	    (error (err)
-	      (report-error "respond-to-replies ~a - ~a~%" bot err)))))
-      ;; If any responses failed, they will be skipped
-      ;; This will set to null if replies are null, so make sure it's in a when 
-      (setf (last-handled-reply bot)
-	    (cl-twit::get-newest-id replies)))))
+  ;; If we've ended up with a null last-handled-reply, try to recover
+  (when (not (last-handled-reply bot))
+    (setf (last-handled-reply bot)
+	  (replies-after-id)))
+  ;; If it's still null the server is probably sad, don't respond this time
+  (when (last-handled-reply bot)
+    (let ((replies (filter-replies bot (new-replies bot))))
+      (when replies 
+	(dolist (reply replies)
+	  (when (not (should-ignore bot reply t))
+	    (handler-case
+	     (let ((response (if (source-request-p reply)
+				 (response-for-source-request bot reply)
+			       (response-for-reply bot reply))))
+	       (when response
+		 (post response 
+		       :in-reply-to-status (cl-twit::status-id reply))))
+	     (error (err)
+		    (report-error "respond-to-replies ~a - ~a~%" bot err)))))
+	;; If any responses failed, they will be skipped
+	;; This will set to null if replies are null, so ensure it's in a when 
+	(setf (last-handled-reply bot)
+	      (cl-twit::get-newest-id replies))))))
 
 (defmethod daily-task ((bot microblog-bot))
   "Performed every day at midnight"
@@ -323,6 +343,12 @@
 		      :initform 0)
    (follow-id :accessor follow-id)))
 
+(defmethod coherent? ((object microblog-bot))
+  "Check whether the object is in a coherent state"
+  (and (call-next-method)
+       (last-handled-post object)
+       (follow-id object) nil))
+
 (defmethod current-user-posts-after-id ((bot microblog-follower-bot))
   "Get the exclusive lower bound for replies to the user to check"
   (or (cl-twit::get-newest-id (cl-twit:m-user-timeline))
@@ -367,11 +393,15 @@
 
 (defmethod respond-to-posts ((bot microblog-follower-bot))
   "Respond to new posts since posts were last processed"
-  (assert (and (last-handled-post bot)
-	       (not (= (last-handled-post bot) 0))))
   (debug-msg "Responding to posts")
-  (let ((posts (new-posts bot)))
-    (when posts
+  ;; If we've ended up with a null last-handled-post, try to recover
+  (when (not (last-handled-post bot))
+    (setf (last-handled-post bot)
+	  (current-user-posts-after-id)))
+  ;; If it's still null the server is probably sad, don't respond this time
+  (when (last-handled-post bot)
+    (let ((posts (new-posts bot)))
+      (when posts
       (debug-msg "Posts to respond to ~a" posts)
       (dolist (post (filter-posts bot posts))
 	(respond-to-post bot post))
@@ -379,13 +409,15 @@
       ;; This will set to null if posts are null, so make sure it's in a when
       (setf (last-handled-post bot)
 	    (cl-twit::get-newest-id posts))))
-  (debug-msg "Most recent post after ~a" (last-handled-post bot)))
+    (debug-msg "Most recent post after ~a" (last-handled-post bot))))
 
 (defmethod run-bot-once ((bot microblog-follower-bot))
   "Run a single iteration of the bot main loop. For running as a cron job"
-    (call-next-method)
-    (with-microblog-user bot
-      (respond-to-posts bot)))
+  (call-next-method)
+  (handler-case
+   (with-microblog-user bot
+			(respond-to-posts bot))
+   (error (err) (report-error "run-bot-once ~a - ~a~%" bot err))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
