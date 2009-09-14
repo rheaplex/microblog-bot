@@ -214,6 +214,10 @@
 	  (cl-twit:user-screen-name 
 	   (cl-twit:status-user reply))))
 
+(defmethod response-p ((bot microblog-bot) post)
+  "Check whether the posy is a response."
+  (search "Hi!" (cl-twit:status-text post)))
+
 (defmethod filter-replies ((bot microblog-bot) replies)
   "Make sure only one reply from each user is listed"
   (remove-duplicates replies 
