@@ -28,15 +28,16 @@
 	   with-microblog-user
 	   post
 	   microblog-bot
+	   filter-replies
 	   response-for-mention
 	   response-for-source-request
 	   response-for-post
-	   filter-mentions
+	   response-p
 	   constant-task
 	   intermittent-task
 	   daily-task
 	   microblog-follower-bot
-	   filter-messages
+	   filter-posts
 	   run-bot-once
 	   run-bot
 	   test-run-bot-once
