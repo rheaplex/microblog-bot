@@ -1,4 +1,4 @@
-;; microblog-bot.lisp -  Bots for microblogs (Twitter, Laconica).
+;; microblog-bot.lisp - Basic bot for microblogging (Twitter, Laconica).
 ;; Copyright (C) 2009  Rob Myers rob@robmyers.org
 ;;
 ;; This program is free software: you can redistribute it and/or modify
@@ -23,149 +23,48 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Useful constants
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defconstant %one-hour (* 60 60)
-  "One hour in seconds")
-
-(defconstant %one-day (* 24 %one-hour)
-  "One day in seconds")
-
-(defconstant %min-wait-time %one-hour
-  "The default minimum time in seconds between posts used by bots")
-
-(defconstant %max-wait-time (* %one-hour 3)
-  "The default maximum time in seconds between posts used by bots")
-
-(defconstant %sleep-time 180
-  "How long to wait between each check")
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Error handling and testing
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defvar *print-debug-messages* nil
-  "Whether debug messages should be printed to stdout or ignored")
-
-(defvar *post-to-server* t
-  "Whether messages should be sent to the server or just printed")
-
-(defun time-string ()
-  "Format a human-readable time"
-  (multiple-value-bind (second minute hour date month year)
-      (get-decoded-time)
-    (format nil "~a-~a-~a ~a:~a:~a" year month date hour minute second)))
-
-(defun debug-msg (&rest args)
-  "Print to stdout if debugging, or ignore if not"
-  (if *print-debug-messages*
-      (apply #'format t (concatenate 'string "~a - " (car args) "~%") 
-	 (time-string) (cdr args))))
-
-(defmethod set-debug (&key (post nil) (msgs t))
-  "Set the state of the library to debugging, with posting set by the keyword"
-  (setf *print-debug-messages* msgs)
-  (setf *post-to-server* post))
-
-(defun set-live ()
-  "Set the state of the library to live"
-  (setf *print-debug-messages* nil)
-  (setf *post-to-server* t))
-
-(defun report-error (&rest args)
-  "Print the error to stdout"
-  (apply #'format t args))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Microblog service and state utilities
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defun set-microblog-service (server-url from-source)
-  "Set the server and the 'from..' string displayed on messages to that server"
-  (debug-msg "Setting server for ~a to ~a" from-source server-url)
-  (setf twit::*source* from-source)
-  (setf twit::*base-url* server-url))
-
-(defmethod post (message &key (in-reply-to-status-id nil))
-  "Post to the server if live, or just print if not"
-  (when *print-debug-messages*
-    (format t "~a - ~a~%" (time-string) message))
-  (when *post-to-server*
-      (cl-twit:m-update message :in-reply-to-status-id in-reply-to-status-id)))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; microblog-user
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defclass microblog-user ()
-  ((user-nickname :reader user-nickname
-		  :initarg :nickname)
-   (user-password :reader user-password
-		  :initarg :password)))
-
-(defmethod coherent? ((object microblog-user))
-  "Check whether the object is in a coherent state"
-  (and (user-nickname object) (user-password object)))
-
-(defun user-id-for-screen-name (name)
-  ;; This is ambiguous. It would be better to use screen_name when supported
-  (let ((user-info (or (cl-twit:m-user-show :id name)
-		    (error "Can't get user info in user-id-for-screen-name"))))
-    (assert user-info)
-    (or (cl-twit::id user-info)
-	(error "Can't get user id in user-id-for-screen-name"))))
-
-(defmacro with-microblog-user (user &body body)
-  "Log in, execture the body, log out"
-  (let ((result (gensym)))
-    `(progn
-       (cl-twit:with-session ((user-nickname ,user) 
-			      (user-password ,user) 
-			      :authenticatep t)
-	 (debug-msg "With user ~a" ,user)
-	 (let ((,result (progn ,@body)))
-	   (debug-msg "Finished with user ~a" ,user) 
-	   ;; with-session doesn't currently do this, remove if it ever does.
-	   (cl-twit:logout)
-	   ,result)))))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Basic bot
 ;; TODO Split out into constant and intermittent bots, or tasks for a bot?
 ;; Tasks are probably best
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defconstant %default-min-wait %one-hour
+  "The default minimum time in seconds between posts used by bots")
+(defconstant %default-max-wait (* %one-hour 3)
+  "The default maximum time in seconds between posts used by bots")
+(defconstant %default-wait-remaining 0)
+(defconstant %default-daily-task-hour 0)
+(defconstant %default-previous-day 0)
+(defconstant %default-source-url nil)
+(defconstant %default-last-handled-reply 0)
+(defconstant %default-ignore-replies-from '())
+
 (defclass microblog-bot (microblog-user)
   ((min-wait :accessor min-wait 
 	     :initarg :min-wait
-	     :initform %min-wait-time)
+	     :initform %default-min-wait)
    (max-wait :accessor max-wait 
 	     :initarg :max-wait 
-	     :initform %max-wait-time)
+	     :initform %default-max-wait)
    (wait-remaining :accessor wait-remaining 
 		   :initarg :wait-remaining
-		   :initform 0)
+		   :initform %default-wait-remaining)
    (daily-task-hour :accessor daily-task-hour
 		    :initarg :daily-task-hour 
-		    :initform 0)
+		    :initform %default-daily-task-hour)
    (previous-day :accessor previous-day 
 		 :initarg :previous-day
-		 :initform 0)
+		 :initform %default-previous-day)
    (source-url :accessor source-url
 	       :initarg :source-url
 	       :allocation :class
-	       :initform nil)
+	       :initform %default-source-url)
    (last-handled-reply :accessor last-handled-reply 
 			:initarg :last-handled-reply 
-			:initform 0)
+			:initform %default-last-handled-reply)
    (ignore-replies-from :accessor ignore-replies-from
 			 :initarg :ignore
-			 :initform '())))
+			 :initform %default-ignore-replies-from)))
 
 (defmethod coherent? ((object microblog-bot))
   "Check whether the object is in a coherent state"
@@ -184,7 +83,7 @@
 	(+ (min-wait bot)
 	   (random (- (max-wait bot)
 		      (min-wait bot)))))
-    (debug-msg "Resetting wait period for ~a to ~a" bot (wait-remaining bot)))
+  (debug-msg "Resetting wait period for ~a to ~a" bot (wait-remaining bot)))
 
 (defmethod replies-after-id ((bot microblog-bot))
   "Get the exclusive lower bound for replies to the user to check"
@@ -196,8 +95,8 @@
   (assert (source-url bot))
   (with-microblog-user bot
     (setf (previous-day bot) (floor (get-universal-time) %one-day))
-      (setf (last-handled-reply bot)
-	    (replies-after-id bot)))
+    (setf (last-handled-reply bot)
+	  (replies-after-id bot)))
     (debug-msg "Initialized bot ~a previous-day ~a most-recent-reply ~a" 
 	       bot (previous-day bot) (last-handled-reply bot)))
 
@@ -215,7 +114,7 @@
 	   (cl-twit:status-user reply))))
 
 (defmethod response-p ((bot microblog-bot) post)
-  "Check whether the posy is a response."
+  "Check whether our post is a response."
   (search "Hi!" (cl-twit:status-text post)))
 
 (defmethod filter-replies ((bot microblog-bot) replies)
@@ -281,7 +180,7 @@
 	      (cl-twit::get-newest-id replies))))))
 
 (defmethod daily-task ((bot microblog-bot))
-  "Performed every day at midnight"
+  "Performed every day at the appointed hour"
   nil)
 
 (defmethod manage-daily-task ((bot microblog-bot))
@@ -335,120 +234,3 @@
   (loop 
      (run-bot-once bot)
      (sleep %sleep-time)))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; User-following bot
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defclass microblog-follower-bot (microblog-bot)
-  ((last-handled-post :accessor last-handled-post 
-		      :initarg :last-handled-post
-		      :initform 0)
-   (follow-id :accessor follow-id)))
-
-(defmethod coherent? ((object microblog-bot))
-  "Check whether the object is in a coherent state"
-  (and (call-next-method)
-       (last-handled-post object)
-       (follow-id object) nil))
-
-(defmethod current-user-posts-after-id ((bot microblog-follower-bot))
-  "Get the exclusive lower bound for replies to the user to check"
-  (or (cl-twit::get-newest-id (cl-twit:m-user-timeline))
-      (cl-twit::get-newest-id (cl-twit:m-public-timeline))))
-
-(defmethod initialize-instance :after ((bot microblog-follower-bot) 
-				       &key (follow-screen-name nil))
-  "Set up the bot's state" 
-  (when follow-screen-name
-    (setf (follow-id bot) (user-id-for-screen-name follow-screen-name)))
-  (with-microblog-user bot
-    (setf (last-handled-post bot)
-	  (current-user-posts-after-id bot)))
-  (debug-msg "Initialized bot ~a most-recent-reply-update ~a" 
-	     bot (last-handled-post bot)))
-
-(defmethod response-for-post ((bot microblog-follower-bot) post)
-  "Response for the post object, or nil not to respond"
-  nil)
-
-(defmethod respond-to-post ((bot microblog-follower-bot) post)
-  "Respond to the post object in some way"
-  (debug-msg "Responding to post ~a" post)
-  (let ((response (response-for-post bot post)))
-    (when response
-      (post response))))
-
-(defmethod filter-posts ((bot microblog-follower-bot) posts)
-  "Make sure only one post from each user is listed"
-  posts)
-
-(defmethod new-posts ((bot microblog-follower-bot))
-  "Get posts from followed user since last checked"
-  (handler-case
-      (sort (cl-twit:m-user-timeline :id (follow-id bot) 
-				     :since-id 
-				     (last-handled-post bot))
-	    #'string< :key #'cl-twit::id)
-    (error (err) 
-      (report-error "new-posts ~a - ~a~%" bot err)
-      nil)))
-
-(defmethod respond-to-posts ((bot microblog-follower-bot))
-  "Respond to new posts since posts were last processed"
-  (debug-msg "Responding to posts")
-  ;; If we've ended up with a null last-handled-post, try to recover
-  (when (not (last-handled-post bot))
-    (setf (last-handled-post bot)
-	  (current-user-posts-after-id)))
-  ;; If it's still null the server is probably sad, don't respond this time
-  (when (last-handled-post bot)
-    (let ((posts (new-posts bot)))
-      (when posts
-      (debug-msg "Posts to respond to ~a" posts)
-      (dolist (post (filter-posts bot posts))
-	(respond-to-post bot post))
-      ;; If any posts weren't processed, they will be skipped
-      ;; This will set to null if posts are null, so make sure it's in a when
-      (setf (last-handled-post bot)
-	    (cl-twit::get-newest-id posts))))
-    (debug-msg "Most recent post after ~a" (last-handled-post bot))))
-
-(defmethod run-bot-once ((bot microblog-follower-bot))
-  "Run a single iteration of the bot main loop. For running as a cron job"
-  (call-next-method)
-  (handler-case
-   (with-microblog-user bot
-			(respond-to-posts bot))
-   (error (err) (report-error "run-bot-once ~a - ~a~%" bot err))))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Testing
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defmethod test-run-bot-once ((bot microblog-bot) &key (i 0) 
-			      (post nil) (daily 3) (periodic 2) (fun nil) 
-			      (msgs t))
-  (assert (and (not (search "identi.ca" twit::*base-url*))
-	       (not (search "twitter.com" twit::*base-url*))))
-  (set-debug :post post :msgs msgs)
-  (with-microblog-user bot
-    (when fun
-      (apply fun bot i))
-    ;; Run the periodic task every periodic iterations
-    (when (= (mod i periodic) 0)
-      (setf (wait-remaining bot) 0))
-    ;; Run the daily task every daily iterations
-    (when (= (mod i daily) 0)
-      (setf (previous-day bot) 0))
-    (run-bot-once bot)))
-
-(defmethod test-run-bot ((bot microblog-bot) iterations 
-		     &key (post nil) (daily 3) (periodic 2) (fun nil) (msgs t))
-  "Run the bot the given number of times, running daily & priodic tasks as set"
-  (setf (daily-task-hour bot) 0)
-  (dotimes (i iterations)
-    (test-run-bot-once bot i :post post :daily daily :periodic periodic
-		       :fun fun :msgs msgs)))
