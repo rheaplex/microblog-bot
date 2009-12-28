@@ -40,5 +40,9 @@
 	   filter-posts
 	   run-bot-once
 	   run-bot
+	   serialise
+	   deserialise
+	   serialise-to-file
+	   serialise-from-file
 	   test-run-bot-once
 	   test-run-bot))

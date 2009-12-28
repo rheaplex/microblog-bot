@@ -21,4 +21,8 @@
   :depends-on (#:cl-twit)
   :serial t
   :components ((:file "package")
-	       (:file "microblog-bot")))
+	       (:file "utilities")
+	       (:file "microblog-user")
+	       (:file "microblog-bot")
+	       (:file "microblog-follower-bot")
+	       (:file "testing")))
