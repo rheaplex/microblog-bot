@@ -1,4 +1,4 @@
-;; microblog-bot.asd -  The system definition(s) for microblog-bot.
+;; constant-task-bot.lisp - A bot that does something every time it's run.
 ;; Copyright (C) 2009  Rhea Myers rhea@myers.studio
 ;;
 ;; This program is free software: you can redistribute it and/or modify
@@ -14,18 +14,25 @@
 ;; You should have received a copy of the GNU Affero General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-(defpackage microblog-bot-system (:use #:cl #:asdf))
-(in-package :microblog-bot-system)
 
-(defsystem "microblog-bot"
-  :depends-on (#:cl-twit)
-  :serial t
-  :components ((:file "package")
-	       (:file "utilities")
-	       (:file "microblog-user")
-	       (:file "microblog-bot")
-	       (:file "microblog-follower-bot")
-	       (:file "daily-task-bot")
-	       (:file "intermittent-task-bot")
-	       (:file "constant-task-bot")
-	       (:file "testing")))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Package
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(in-package :microblog-bot)
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Constant task bot
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defclass constant-task-bot (microblog-bot)
+  ())
+
+(defmethod constant-task ((bot microblog-bot))
+  "Performed every time the bot wakes up"
+  nil)
+
+(defmethod manage-task :after ((bot constant-task-bot))
+  "Do the bot's task once."
+  (constant-task bot))

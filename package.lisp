@@ -22,27 +22,31 @@
 	   set-debug
 	   set-live
 	   report-error
+
 	   microblog-user
 	   user-nickname
 	   user-password
 	   with-microblog-user
 	   post
+
 	   microblog-bot
 	   filter-replies
 	   response-for-mention
 	   response-for-source-request
 	   response-for-post
 	   response-p
+
+	   constant-task-bot
 	   constant-task
+	   intermittent-task-bot
 	   intermittent-task
+	   daily-task-bot
 	   daily-task
+
 	   microblog-follower-bot
 	   filter-posts
+
 	   run-bot-once
 	   run-bot
-	   serialise
-	   deserialise
-	   serialise-to-file
-	   serialise-from-file
 	   test-run-bot-once
 	   test-run-bot))

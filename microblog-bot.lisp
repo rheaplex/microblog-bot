@@ -24,38 +24,20 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Basic bot
-;; TODO Split out into constant and intermittent bots, or tasks for a bot?
-;; Tasks are probably best
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defconstant %default-min-wait %one-hour
-  "The default minimum time in seconds between posts used by bots")
-(defconstant %default-max-wait (* %one-hour 3)
-  "The default maximum time in seconds between posts used by bots")
-(defconstant %default-wait-remaining 0)
-(defconstant %default-daily-task-hour 0)
-(defconstant %default-previous-day 0)
-(defconstant %default-source-url nil)
-(defconstant %default-last-handled-reply 0)
-(defconstant %default-ignore-replies-from '())
+(defconstant %sleep-time 180
+  "How many seconds to wait between each run of the bot")
+
+(defconstant %default-source-url nil
+  "The default source url for this code (or a derivative)")
+(defconstant %default-last-handled-reply 0
+  "The default last reply post id handled")
+(defconstant %default-ignore-replies-from '()
+  "Usernames to ignore replies from")
 
 (defclass microblog-bot (microblog-user)
-  ((min-wait :accessor min-wait 
-	     :initarg :min-wait
-	     :initform %default-min-wait)
-   (max-wait :accessor max-wait 
-	     :initarg :max-wait 
-	     :initform %default-max-wait)
-   (wait-remaining :accessor wait-remaining 
-		   :initarg :wait-remaining
-		   :initform %default-wait-remaining)
-   (daily-task-hour :accessor daily-task-hour
-		    :initarg :daily-task-hour 
-		    :initform %default-daily-task-hour)
-   (previous-day :accessor previous-day 
-		 :initarg :previous-day
-		 :initform %default-previous-day)
-   (source-url :accessor source-url
+  ((source-url :accessor source-url
 	       :initarg :source-url
 	       :allocation :class
 	       :initform %default-source-url)
@@ -66,26 +48,7 @@
 			 :initarg :ignore
 			 :initform %default-ignore-replies-from)))
 
-(defmethod coherent? ((object microblog-bot))
-  "Check whether the object is in a coherent state"
-  (and (call-next-method)
-       (> (min-wait object) 0)
-       (>= (max-wait object) (min-wait object))
-       (>= (wait-remaining object) 0)
-       (< (wait-remaining object) (max-wait object))
-       (>= 0 (daily-task-hour object) 23)
-       (source-url object)
-       (last-handled-reply object)))
-
-(defmethod reset-wait ((bot microblog-bot))
-  "Set the time until next execution to between min-wait..max-wait"
-  (setf (wait-remaining bot)
-	(+ (min-wait bot)
-	   (random (- (max-wait bot)
-		      (min-wait bot)))))
-  (debug-msg "Resetting wait period for ~a to ~a" bot (wait-remaining bot)))
-
-(defmethod replies-after-id ((bot microblog-bot))
+(defmethod last-handled-reply-id ((bot microblog-bot))
   "Get the exclusive lower bound for replies to the user to check"
   (or (cl-twit::get-newest-id (cl-twit:m-user-timeline))
       (cl-twit::get-newest-id (cl-twit:m-public-timeline))))
@@ -93,12 +56,11 @@
 (defmethod initialize-instance :after ((bot microblog-bot) &key)
   "Set up the bot's state"
   (assert (source-url bot))
-  (with-microblog-user bot
-    (setf (previous-day bot) (floor (get-universal-time) %one-day))
+  (with-microblog-user bot    
     (setf (last-handled-reply bot)
-	  (replies-after-id bot)))
-    (debug-msg "Initialized bot ~a previous-day ~a most-recent-reply ~a" 
-	       bot (previous-day bot) (last-handled-reply bot)))
+	  (last-handled-reply-id bot)))
+  (debug-msg "Initialized bot ~a most-recent-reply ~a" 
+	     bot (last-handled-reply bot)))
 
 (defmethod response-for-source-request ((bot microblog-bot) reply)
   "Response for the source request"
@@ -143,7 +105,7 @@
   (debug-msg "new-replies after ~a" (last-handled-reply bot))
   (handler-case
       (sort (cl-twit:m-replies :since-id 
-			 (last-handled-reply bot))
+			       (last-handled-reply bot))
 	    #'string< :key #'cl-twit::id)
     (error (err) 
       (report-error "new-replies ~a - ~a~%" bot err)
@@ -158,7 +120,7 @@
   ;; If we've ended up with a null last-handled-reply, try to recover
   (when (not (last-handled-reply bot))
     (setf (last-handled-reply bot)
-	  (replies-after-id)))
+	  (last-handled-reply-id bot)))
   ;; If it's still null the server is probably sad, don't respond this time
   (when (last-handled-reply bot)
     (let ((replies (filter-replies bot (new-replies bot))))
@@ -179,54 +141,16 @@
 	(setf (last-handled-reply bot)
 	      (cl-twit::get-newest-id replies))))))
 
-(defmethod daily-task ((bot microblog-bot))
-  "Performed every day at the appointed hour"
-  nil)
-
-(defmethod manage-daily-task ((bot microblog-bot))
-  "If it's a new day and after the appointed hour, perform the task"
-  (multiple-value-bind (days seconds) (floor (get-universal-time) %one-day)
-    (when (and (> days (previous-day bot))
-	       (> seconds (* (daily-task-hour bot) %one-hour)))
-      (debug-msg "Running daily task for bot ~a" bot )
-      (handler-case
-	  (progn
-	    (daily-task bot)
-	    ;; Only update if successful. Is this OK?
-	    (setf (previous-day bot) days))
-	(error (err) 
-	  (report-error "manage-daily-task ~a - ~a~%" bot err))))))
-
-(defmethod constant-task ((bot microblog-bot))
-  "Performed every time the bot wakes up"
-  nil)
-
-(defmethod intermittent-task ((bot microblog-bot))
-  "Perform some intermittent task"
-  nil)
-
-(defmethod manage-intermittent-task ((bot microblog-bot))
-  "Run the task or update the wait time"
-  (debug-msg "Wait remaining for bot ~a is ~a" bot (wait-remaining bot))
- (if (<= (wait-remaining bot) 0)
-      (handler-case
-	  (progn
-	    (intermittent-task bot)
-	    (reset-wait bot))
-	(error (err) 
-	  (report-error "manage-intermittent-task ~a - ~a~%" bot err)))
-      (setf (wait-remaining bot)
-	    (- (wait-remaining bot)
-	       %sleep-time))))
+(defmethod manage-task ((bot microblog-bot))
+  "Do the bot's task once."
+  (respond-to-replies bot))
 
 (defmethod run-bot-once ((bot microblog-bot))
   (debug-msg "Running bot once ~a" bot)
   (handler-case
       (with-microblog-user bot
-	(manage-daily-task bot)
-	(constant-task bot)
-	(respond-to-replies bot)
-	(manage-intermittent-task bot))
+	;; The use of :after methods ensures that this handles all subclasses
+	(manage-task bot))
     (error (err) (report-error "run-bot-once ~a - ~a~%" bot err))))
 
 (defmethod run-bot ((bot microblog-bot))
