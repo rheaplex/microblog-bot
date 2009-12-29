@@ -26,6 +26,23 @@
 ;; Testing
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defmethod test-run-task-once ((bot microblog-bot) i 
+			       &key (fun nil) &allow-other-keys)
+  (when fun
+    (apply fun bot i)))
+
+(defmethod test-run-task-once :after ((bot daily-task-bot) i 
+				      &key (daily 3) &allow-other-keys)
+  ;; Run the daily task every daily iterations
+    (when (= (mod i daily) 0)
+      (setf (previous-day bot) 0)))
+
+(defmethod test-run-task-once :after ((bot intermittent-task-bot) i
+				      &key (periodic 2) &allow-other-keys)
+  ;; Run the periodic task every periodic iterations
+  (when (= (mod i periodic) 0)
+    (setf (wait-remaining bot) 0)))
+
 (defmethod test-run-bot-once ((bot microblog-bot) &key (i 0) 
 			      (post nil) (daily 3) (periodic 2) (fun nil) 
 			      (msgs t))
@@ -33,14 +50,11 @@
 	       (not (search "twitter.com" twit::*base-url*))))
   (set-debug :post post :msgs msgs)
   (with-microblog-user bot
-    (when fun
-      (apply fun bot i))
-    ;; Run the periodic task every periodic iterations
-    (when (= (mod i periodic) 0)
-      (setf (wait-remaining bot) 0))
-    ;; Run the daily task every daily iterations
-    (when (= (mod i daily) 0)
-      (setf (previous-day bot) 0))
+    (test-run-task-once bot i 
+			:post post 
+			:daily daily 
+			:periodic periodic 
+			:fun fun)
     (run-bot-once bot)))
 
 (defmethod test-run-bot ((bot microblog-bot) iterations 

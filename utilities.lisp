@@ -32,9 +32,6 @@
 (defconstant %one-day (* 24 %one-hour)
   "One day in seconds")
 
-(defconstant %sleep-time 180
-  "How long to wait between each check")
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Error handling and testing
@@ -44,7 +41,7 @@
   "Whether debug messages should be printed to stdout or ignored")
 
 (defvar *post-to-server* t
-  "Whether messages should be sent to the server or just printed")
+  "Whether posts should be sent to the server or just printed locally")
 
 (defun time-string ()
   "Format a human-readable time"
@@ -53,10 +50,10 @@
     (format nil "~a-~a-~a ~a:~a:~a" year month date hour minute second)))
 
 (defun debug-msg (&rest args)
-  "Print to stdout if debugging, or ignore if not"
+  "Print to stdout if debugging, or ignore if not debugging"
   (if *print-debug-messages*
       (apply #'format t (concatenate 'string "~a - " (car args) "~%") 
-	 (time-string) (cdr args))))
+	     (time-string) (cdr args))))
 
 (defmethod set-debug (&key (post nil) (msgs t))
   "Set the state of the library to debugging, with posting set by the keyword"

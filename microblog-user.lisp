@@ -32,28 +32,25 @@
    (user-password :accessor user-password
 		  :initarg :password)))
 
-(defmethod coherent? ((object microblog-user))
-  "Check whether the object is in a coherent state"
-  (and (user-nickname object) (user-password object)))
-
 (defun user-id-for-screen-name (name)
-  ;; This is ambiguous. It would be better to use screen_name when supported
-  (let ((user-info (or (cl-twit:m-user-show :id name)
-		    (error "Can't get user info in user-id-for-screen-name"))))
-    (assert user-info)
-    (or (cl-twit::id user-info)
+  ;; This is ambiguous [why?].
+  ;; It would be better to use screen_name when supported
+  (let ((user (or (cl-twit:m-user-show :id name)
+		  (error "Can't get user info in user-id-for-screen-name"))))
+    (assert user)
+    (or (cl-twit::id user)
 	(error "Can't get user id in user-id-for-screen-name"))))
 
-(defmacro with-microblog-user (user &body body)
+(defmacro with-microblog-user (mb-user &body body)
   "Log in, execture the body, log out"
   (let ((result (gensym)))
     `(progn
-       (cl-twit:with-session ((user-nickname ,user) 
-			      (user-password ,user) 
+       (cl-twit:with-session ((user-nickname ,mb-user) 
+			      (user-password ,mb-user) 
 			      :authenticatep t)
-	 (debug-msg "With user ~a" ,user)
+	 (debug-msg "With user ~a" ,mb-user)
 	 (let ((,result (progn ,@body)))
-	   (debug-msg "Finished with user ~a" ,user) 
+	   (debug-msg "Finished with user ~a" ,mb-user) 
 	   ;; with-session doesn't currently do this, remove if it ever does.
 	   (cl-twit:logout)
 	   ,result)))))

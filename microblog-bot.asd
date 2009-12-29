@@ -25,4 +25,7 @@
 	       (:file "microblog-user")
 	       (:file "microblog-bot")
 	       (:file "microblog-follower-bot")
+	       (:file "daily-task-bot")
+	       (:file "intermittent-task-bot")
+	       (:file "constant-task-bot")
 	       (:file "testing")))

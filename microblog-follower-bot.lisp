@@ -1,4 +1,4 @@
-;; microblog-follower-bot.lisp - A bot that follows another user's posts.
+;; follower-bot.lisp - A bot that follows another user's posts.
 ;; Copyright (C) 2009  Rob Myers rob@robmyers.org
 ;;
 ;; This program is free software: you can redistribute it and/or modify
@@ -34,12 +34,6 @@
 		      :initarg :last-handled-post
 		      :initform 0)
    (follow-id :accessor follow-id)))
-
-(defmethod coherent? ((object microblog-follower-bot))
-  "Check whether the object is in a coherent state"
-  (and (call-next-method)
-       (last-handled-post object)
-       (follow-id object) nil))
 
 (defmethod current-user-posts-after-id ((bot microblog-follower-bot))
   "Get the exclusive lower bound for replies to the user to check"
@@ -89,7 +83,7 @@
   ;; If we've ended up with a null last-handled-post, try to recover
   (when (not (last-handled-post bot))
     (setf (last-handled-post bot)
-	  (current-user-posts-after-id)))
+	  (current-user-posts-after-id bot)))
   ;; If it's still null the server is probably sad, don't respond this time
   (when (last-handled-post bot)
     (let ((posts (new-posts bot)))
@@ -103,10 +97,6 @@
 	    (cl-twit::get-newest-id posts))))
     (debug-msg "Most recent post after ~a" (last-handled-post bot))))
 
-(defmethod run-bot-once ((bot microblog-follower-bot))
-  "Run a single iteration of the bot main loop. For running as a cron job"
-  (call-next-method)
-  (handler-case
-   (with-microblog-user bot
-			(respond-to-posts bot))
-   (error (err) (report-error "run-bot-once ~a - ~a~%" bot err))))
+(defmethod manage-task :after ((bot microblog-follower-bot))
+  "Do the bot's task once."
+  (respond-to-posts bot))

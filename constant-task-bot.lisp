@@ -1,4 +1,4 @@
-;; packages.lisp -  The package definition(s) for microblog-bot.
+;; constant-task-bot.lisp - A bot that does something every time it's run.
 ;; Copyright (C) 2009  Rob Myers rob@robmyers.org
 ;;
 ;; This program is free software: you can redistribute it and/or modify
@@ -14,39 +14,25 @@
 ;; You should have received a copy of the GNU Affero General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-(defpackage microblog-bot
-  (:documentation
-   "Microblog bot creation support.")
-  (:use #:common-lisp #:cl-twit)
-  (:export set-microblog-service
-	   set-debug
-	   set-live
-	   report-error
 
-	   microblog-user
-	   user-nickname
-	   user-password
-	   with-microblog-user
-	   post
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Package
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-	   microblog-bot
-	   filter-replies
-	   response-for-mention
-	   response-for-source-request
-	   response-for-post
-	   response-p
+(in-package :microblog-bot)
 
-	   constant-task-bot
-	   constant-task
-	   intermittent-task-bot
-	   intermittent-task
-	   daily-task-bot
-	   daily-task
 
-	   microblog-follower-bot
-	   filter-posts
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Constant task bot
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-	   run-bot-once
-	   run-bot
-	   test-run-bot-once
-	   test-run-bot))
+(defclass constant-task-bot (microblog-bot)
+  ())
+
+(defmethod constant-task ((bot microblog-bot))
+  "Performed every time the bot wakes up"
+  nil)
+
+(defmethod manage-task :after ((bot constant-task-bot))
+  "Do the bot's task once."
+  (constant-task bot))
