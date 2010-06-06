@@ -100,8 +100,9 @@
 	     (cl-twit:status-user message))
 	    (ignore-replies-from bot)
 	    :test #'string=)
-    (condition () 
-      (report-error "should-ignore ~a ~a - ~a~%" (user-nickname bot) bot err)
+    (condition (the-condition) 
+      (report-error "should-ignore ~a ~a - ~a~%" 
+		    (user-nickname bot) bot the-condition)
       default)))
 
 (defmethod new-replies ((bot microblog-bot))
@@ -111,8 +112,9 @@
       (sort (cl-twit:m-replies :since-id 
 			       (last-handled-reply bot))
 	    #'string< :key #'cl-twit::id)
-    (condition () 
-      (report-error "new-replies ~a ~a - ~a~%" (user-nickname bot) bot err)
+    (condition (the-condition)
+      (report-error "new-replies ~a ~a - ~a~%"
+		    (user-nickname bot) bot the-condition)
       nil)))
 
 (defun source-request-p (reply)
@@ -138,9 +140,9 @@
 	       (when response
 		 (post response 
 		       :in-reply-to-status (cl-twit::status-id reply))))
-	     (condition ()
+	     (condition (the-condition)
 		    (report-error "respond-to-replies ~a ~a - ~a~%" 
-				  (user-nickname bot) bot err)))))
+				  (user-nickname bot) bot the-condition)))))
 	;; If any responses failed, they will be skipped
 	;; This will set to null if replies are null, so ensure it's in a when 
 	(setf (last-handled-reply bot)
