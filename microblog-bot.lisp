@@ -1,5 +1,5 @@
 ;; microblog-bot.lisp - Basic bot for microblogging (Twitter, Laconica).
-;; Copyright (C) 2009  Rob Myers rob@robmyers.org
+;; Copyright (C) 2009, 2010  Rob Myers rob@robmyers.org
 ;;
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU Affero General Public License as
@@ -56,9 +56,13 @@
 (defmethod initialize-instance :after ((bot microblog-bot) &key)
   "Set up the bot's state"
   (assert (source-url bot))
-  (with-microblog-user bot
-    (setf (last-handled-reply bot)
-	  (last-handled-reply-id bot)))
+  (handler-case 
+      (with-microblog-user bot    
+	(setf (last-handled-reply bot)
+	      (last-handled-reply-id bot)))
+    (condition (the-condition) 
+      (format t "Error for ~a ~%" (user-nickname bot))
+      (invoke-debugger the-condition)))
   (debug-msg "Initialized bot ~a most-recent-reply ~a" 
 	     bot (last-handled-reply bot)))
 
@@ -96,8 +100,9 @@
 	     (cl-twit:status-user message))
 	    (ignore-replies-from bot)
 	    :test #'string=)
-    (error (err) 
-      (report-error "should-ignore ~a - ~a~%" bot err)
+    (condition (the-condition) 
+      (report-error "should-ignore ~a ~a - ~a~%" 
+		    (user-nickname bot) bot the-condition)
       default)))
 
 (defmethod new-replies ((bot microblog-bot))
@@ -107,8 +112,9 @@
       (sort (cl-twit:m-replies :since-id 
 			       (last-handled-reply bot))
 	    #'string< :key #'cl-twit::id)
-    (error (err) 
-      (report-error "new-replies ~a - ~a~%" bot err)
+    (condition (the-condition)
+      (report-error "new-replies ~a ~a - ~a~%"
+		    (user-nickname bot) bot the-condition)
       nil)))
 
 (defun source-request-p (reply)
@@ -132,10 +138,11 @@
 				 (response-for-source-request bot reply)
 			       (response-for-reply bot reply))))
 	       (when response
-		 (post response 
-		       :in-reply-to-status-id (cl-twit::status-id reply))))
-	     (error (err)
-		    (report-error "respond-to-replies ~a - ~a~%" bot err)))))
+		 (post response
+		       :in-reply-to-status (cl-twit::status-id reply))))
+	     (condition (the-condition)
+		    (report-error "respond-to-replies ~a ~a - ~a~%" 
+				  (user-nickname bot) bot the-condition)))))
 	;; If any responses failed, they will be skipped
 	;; This will set to null if replies are null, so ensure it's in a when 
 	(setf (last-handled-reply bot)
@@ -151,7 +158,10 @@
       (with-microblog-user bot
 	;; The use of :after methods ensures that this handles all subclasses
 	(manage-task bot))
-    (error (err) (report-error "run-bot-once ~a - ~a~%" bot err))))
+    (condition (the-condition) 
+      (format t "Error for ~a ~a - ~a ~%" (user-nickname bot) bot the-condition)
+      ;; If the error wasn't handled it's unexpected, so quit here
+      (invoke-debugger the-condition))))
 
 (defmethod run-bot ((bot microblog-bot))
   "Loop forever responding to replies & occasionaly performing periodic-task"
