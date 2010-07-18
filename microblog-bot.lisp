@@ -41,12 +41,12 @@
 	       :initarg :source-url
 	       :allocation :class
 	       :initform %default-source-url)
-   (last-handled-reply :accessor last-handled-reply 
-			:initarg :last-handled-reply 
-			:initform %default-last-handled-reply)
    (ignore-replies-from :accessor ignore-replies-from
 			 :initarg :ignore
-			 :initform %default-ignore-replies-from)))
+			 :initform %default-ignore-replies-from)
+   (last-handled-reply :accessor last-handled-reply 
+			:initarg :last-handled-reply 
+			:initform %default-last-handled-reply)))
 
 (defmethod last-handled-reply-id ((bot microblog-bot))
   "Get the exclusive lower bound for replies to the user to check"
@@ -56,7 +56,7 @@
 (defmethod initialize-instance :after ((bot microblog-bot) &key)
   "Set up the bot's state"
   (assert (source-url bot))
-  (with-microblog-user bot    
+  (with-microblog-user bot
     (setf (last-handled-reply bot)
 	  (last-handled-reply-id bot)))
   (debug-msg "Initialized bot ~a most-recent-reply ~a" 
@@ -133,7 +133,7 @@
 			       (response-for-reply bot reply))))
 	       (when response
 		 (post response 
-		       :in-reply-to-status (cl-twit::status-id reply))))
+		       :in-reply-to-status-id (cl-twit::status-id reply))))
 	     (error (err)
 		    (report-error "respond-to-replies ~a - ~a~%" bot err)))))
 	;; If any responses failed, they will be skipped

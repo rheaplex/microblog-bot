@@ -54,3 +54,8 @@
 	   ;; with-session doesn't currently do this, remove if it ever does.
 	   (cl-twit:logout)
 	   ,result)))))
+
+(defmethod from-config-plist ((user microblog-user) (alist list))
+  "Set the user's configuration from a plist"
+  (setf (user-nickname user) (car (assoc :user-nickname alist)))
+  (setf (user-password user) (car (assoc :user-password alist))))
