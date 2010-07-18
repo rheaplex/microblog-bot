@@ -30,7 +30,7 @@
 (defconstant %default-follow-id nil)
 
 (defclass microblog-follower-bot (microblog-bot)
-  ((last-handled-post :accessor last-handled-post 
+  ((last-handled-post :accessor last-handled-post
 		      :initarg :last-handled-post
 		      :initform 0)
    (follow-id :accessor follow-id)))
