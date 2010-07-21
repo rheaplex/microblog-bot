@@ -85,6 +85,7 @@
 
 (defmethod filter-replies ((bot microblog-bot) replies)
   "Make sure only one reply from each user is listed"
+  (print replies)
   (remove-duplicates replies 
 		     :test #'(lambda (a b)
 			       (string=
@@ -139,7 +140,7 @@
 			       (response-for-reply bot reply))))
 	       (when response
 		 (post response
-		       :in-reply-to-status (cl-twit::status-id reply))))
+		       :in-reply-to-status-id (cl-twit::status-id reply))))
 	     (condition (the-condition)
 		    (report-error "respond-to-replies ~a ~a - ~a~%" 
 				  (user-nickname bot) bot the-condition)))))
