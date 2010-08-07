@@ -28,6 +28,13 @@
 
 (cl:in-package #:cl-twit)
 
+;; Hideous hack to fix problem with cxml not liking the new statusnet namespace
+
+(let ((cxml::*namespace-bindings* 	 
+       (acons #"statusnet" 	 
+	      #"http://status.net/schema/api/1/" 	 
+	      cxml::*namespace-bindings*))))
+  
 ;;; TODOs:
 ;;;; TODO: Methods to be tested: update- (?)
 ;;;; TODO: Easily switch context between profiles (?)
@@ -862,6 +869,3 @@ SINCE-ID is not checked when PAGE is non-NIL."
 			    (make-pathname :name ".cl-twit.lisp")
 			    (truename (user-homedir-pathname))))))
     (when file (load file))))
-
-
-
