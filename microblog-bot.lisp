@@ -85,7 +85,6 @@
 
 (defmethod filter-replies ((bot microblog-bot) replies)
   "Make sure only one reply from each user is listed"
-  (print replies)
   (remove-duplicates replies 
 		     :test #'(lambda (a b)
 			       (string=
@@ -149,7 +148,7 @@
 	(setf (last-handled-reply bot)
 	      (cl-twit::get-newest-id replies))))))
 
-(defmethod manage-task ((bot microblog-bot))
+(Defmethod manage-task ((bot microblog-bot))
   "Do the bot's task once."
   (respond-to-replies bot))
 
