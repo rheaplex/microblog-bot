@@ -172,7 +172,7 @@
 
 ;;; Methods base
 
-(defparameter *base-url* "http://www.twitter.com")
+(defparameter *base-url* "https://identi.ca/api")
 (defparameter *source* "cltwit")
 
 (defvar *username* nil
@@ -204,6 +204,9 @@
           (error 'http-error
                  :status-code status-code
                  :url url
+		 #+sbcl
+		 :body (sb-ext:octets-to-string body)	 
+		 #-sbcl
                  :body body)))))
 
 (defparameter *max-text-length* 140)
