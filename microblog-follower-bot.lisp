@@ -60,7 +60,7 @@
   (debug-msg "Responding to post ~a" post)
   (let ((response (response-for-post bot post)))
     (when response
-      (post response))))
+      (queue-update response))))
 
 (defmethod filter-posts ((bot microblog-follower-bot) posts)
   "Make sure only one post from each user is listed"
@@ -73,7 +73,7 @@
 				     :since-id 
 				     (last-handled-post bot))
 	    #'string< :key #'cl-twit::id)
-    (error (err) 
+    (condition (err) 
       (report-error "new-posts ~a - ~a~%" bot err)
       nil)))
 
@@ -88,13 +88,13 @@
   (when (last-handled-post bot)
     (let ((posts (new-posts bot)))
       (when posts
-      (debug-msg "Posts to respond to ~a" posts)
-      (dolist (post (filter-posts bot posts))
-	(respond-to-post bot post))
-      ;; If any posts weren't processed, they will be skipped
-      ;; This will set to null if posts are null, so make sure it's in a when
-      (setf (last-handled-post bot)
-	    (cl-twit::get-newest-id posts))))
+	(debug-msg "Posts to respond to ~a" posts)
+	(dolist (post (filter-posts bot posts))
+	  (respond-to-post bot post))
+	;; If any posts weren't processed, they will be skipped
+	;; This will set to null if posts are null, so make sure it's in a when
+	(setf (last-handled-post bot)
+	      (cl-twit::get-newest-id posts))))
     (debug-msg "Most recent post after ~a" (last-handled-post bot))))
 
 (defmethod manage-task :after ((bot microblog-follower-bot))
