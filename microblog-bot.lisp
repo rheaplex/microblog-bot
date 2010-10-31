@@ -46,7 +46,13 @@
 			 :initform %default-ignore-replies-from)
    (last-handled-reply :accessor last-handled-reply 
 			:initarg :last-handled-reply 
-			:initform %default-last-handled-reply)))
+			:initform %default-last-handled-reply)
+   (updates-to-post :accessor updates-to-post
+		    :initform '())
+   (update-timespan :accessor update-timespan
+		    :initarg :update-timespan
+		    ;; Spread the responses over 20 minutes
+		    :initform (*20 60))))
 
 (defmethod last-handled-reply-id ((bot microblog-bot))
   "Get the exclusive lower bound for replies to the user to check"
@@ -138,7 +144,7 @@
 				 (response-for-source-request bot reply)
 			       (response-for-reply bot reply))))
 	       (when response
-		 (post response
+		 (queue-update response
 		       :in-reply-to-status-id (cl-twit::status-id reply))))
 	     (condition (the-condition)
 		    (report-error "respond-to-replies ~a ~a - ~a~%" 
@@ -148,16 +154,44 @@
 	(setf (last-handled-reply bot)
 	      (cl-twit::get-newest-id replies))))))
 
-(Defmethod manage-task ((bot microblog-bot))
+(defmethod manage-task ((bot microblog-bot))
   "Do the bot's task once."
   (respond-to-replies bot))
+
+(defmethod queue-update ((bot microblog-bot) (update string) &key
+			 (in-reply-to nil))
+  "Queue the update to be posted as soon as possible."
+  ;; Store as (message . in-reply-to-message-id), the latter probably nil
+  (append (updates-to-post bot) (list (cons update) in-reply-to)))
+
+(defmethod post-updates ((bot microblog-bot))
+  "Post the updates"
+  (let* ((updates-count (length (updates-to-post bot)))
+	 (time-between-updates (floor (/ update-timespan updates-count))))
+    ;; Loop, taking updates from the list
+    (loop for update = (pop (updates-to-post bot))
+       while update
+       ;; Posting them
+       ;; This is the one place in the code we actually want to use (post)
+       do (handler-case (post (car update) :in-reply-to-status-id (cdr update))
+	    (sleep time-between-updates)
+	    (cl-twit:http-error
+		(format t "Error for ~a ~a update \"~a\" - ~a ~%" 
+		 (user-nickname bot) bot update the-condition)
+	      ;; Restore the failed update
+	      (push update (updates-to-post bot))
+	      ;; And don't try any more for now, wait for the next run
+	      ;; Which may not add any more messages, but will try to post these
+	      (return))))
 
 (defmethod run-bot-once ((bot microblog-bot))
   (debug-msg "Running bot once ~a" bot)
   (handler-case
       (with-microblog-user bot
 	;; The use of :after methods ensures that this handles all subclasses
-	(manage-task bot))
+	(manage-task bot)
+	;; This will try to post all the updates in the queue
+	(post-updates))
     (condition (the-condition) 
       (format t "Error for ~a ~a - ~a ~%" (user-nickname bot) bot the-condition)
       ;; If the error wasn't handled it's unexpected, so quit here

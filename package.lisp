@@ -27,10 +27,10 @@
 	   user-nickname
 	   user-password
 	   with-microblog-user
-	   post
 
 	   microblog-bot
 	   filter-replies
+	   queue-update
 	   response-for-mention
 	   response-for-source-request
 	   response-for-post
