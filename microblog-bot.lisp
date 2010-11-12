@@ -175,9 +175,11 @@
        ;; This is the one place in the code we actually want to use (post)
        do (handler-case (post (car update) :in-reply-to-status-id (cdr update))
 	    (sleep time-between-updates)
-	    (cl-twit:http-error
-		(format t "Error for ~a ~a update \"~a\" - ~a ~%" 
-		 (user-nickname bot) bot update the-condition)
+	    (cl-twit:http-error (the-error)
+	      (format t "Error for ~a ~a update \"~a\" - ~a ~%" 
+		      (user-nickname bot) bot update the-condition)
+	      ;;FIXME: check (cl-twit:http-status-code the-error)
+	      ;; and die on 4xx errors
 	      ;; Restore the failed update
 	      (push update (updates-to-post bot))
 	      ;; And don't try any more for now, wait for the next run
