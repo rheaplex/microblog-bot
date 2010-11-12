@@ -52,7 +52,7 @@
    (update-timespan :accessor update-timespan
 		    :initarg :update-timespan
 		    ;; Spread the responses over 20 minutes
-		    :initform (*20 60))))
+		    :initform (* 20 60))))
 
 (defmethod last-handled-reply-id ((bot microblog-bot))
   "Get the exclusive lower bound for replies to the user to check"
@@ -162,29 +162,30 @@
 			 (in-reply-to nil))
   "Queue the update to be posted as soon as possible."
   ;; Store as (message . in-reply-to-message-id), the latter probably nil
-  (append (updates-to-post bot) (list (cons update) in-reply-to)))
+  (append (updates-to-post bot) (cons update in-reply-to)))
 
 (defmethod post-updates ((bot microblog-bot))
   "Post the updates"
   (let* ((updates-count (length (updates-to-post bot)))
-	 (time-between-updates (floor (/ update-timespan updates-count))))
+	 (time-between-updates (floor (/ (update-timespan bot) updates-count))))
     ;; Loop, taking updates from the list
     (loop for update = (pop (updates-to-post bot))
        while update
        ;; Posting them
        ;; This is the one place in the code we actually want to use (post)
-       do (handler-case (post (car update) :in-reply-to-status-id (cdr update))
-	    (sleep time-between-updates)
+       do (handler-case 
+	   (progn (post (car update) :in-reply-to-status-id (cdr update))
+		  (sleep time-between-updates))
 	    (cl-twit:http-error (the-error)
 	      (format t "Error for ~a ~a update \"~a\" - ~a ~%" 
-		      (user-nickname bot) bot update the-condition)
+		      (user-nickname bot) bot update the-error)
 	      ;;FIXME: check (cl-twit:http-status-code the-error)
 	      ;; and die on 4xx errors
 	      ;; Restore the failed update
 	      (push update (updates-to-post bot))
 	      ;; And don't try any more for now, wait for the next run
 	      ;; Which may not add any more messages, but will try to post these
-	      (return))))
+	      (return))))))
 
 (defmethod run-bot-once ((bot microblog-bot))
   (debug-msg "Running bot once ~a" bot)
