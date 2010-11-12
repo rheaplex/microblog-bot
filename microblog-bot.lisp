@@ -144,8 +144,8 @@
 				 (response-for-source-request bot reply)
 			       (response-for-reply bot reply))))
 	       (when response
-		 (queue-update response
-		       :in-reply-to-status-id (cl-twit::status-id reply))))
+		 (queue-update bot response
+		       :in-reply-to (cl-twit::status-id reply))))
 	     (condition (the-condition)
 		    (report-error "respond-to-replies ~a ~a - ~a~%" 
 				  (user-nickname bot) bot the-condition)))))
@@ -158,24 +158,30 @@
   "Do the bot's task once."
   (respond-to-replies bot))
 
-(defmethod queue-update ((bot microblog-bot) (update string) &key
+(defmethod queue-update ((bot microblog-bot) (update string) &key 
 			 (in-reply-to nil))
   "Queue the update to be posted as soon as possible."
   ;; Store as (message . in-reply-to-message-id), the latter probably nil
-  (append (updates-to-post bot) (cons update in-reply-to)))
+  (setf  (updates-to-post bot)  
+	 (append (updates-to-post bot) (list (cons update in-reply-to)))))
 
 (defmethod post-updates ((bot microblog-bot))
   "Post the updates"
   (let* ((updates-count (length (updates-to-post bot)))
-	 (time-between-updates (floor (/ (update-timespan bot) updates-count))))
+	 (time-between-updates (floor (/ (update-timespan bot)
+					 (max updates-count 1)))))
     ;; Loop, taking updates from the list
-    (loop for update = (pop (updates-to-post bot))
+    (loop 
+       for update = (pop (updates-to-post bot))
+       then (pop (updates-to-post bot))
        while update
        ;; Posting them
        ;; This is the one place in the code we actually want to use (post)
        do (handler-case 
 	   (progn (post (car update) :in-reply-to-status-id (cdr update))
-		  (sleep time-between-updates))
+		  ;; More to post? Sleep before doing so
+		  (if (updates-to-post bot)
+		      (sleep time-between-updates)))
 	    (cl-twit:http-error (the-error)
 	      (format t "Error for ~a ~a update \"~a\" - ~a ~%" 
 		      (user-nickname bot) bot update the-error)
@@ -191,10 +197,10 @@
   (debug-msg "Running bot once ~a" bot)
   (handler-case
       (with-microblog-user bot
-	;; The use of :after methods ensures that this handles all subclasses
+	;; The use of :after methods ensures that this handles all subclasses	
 	(manage-task bot)
 	;; This will try to post all the updates in the queue
-	(post-updates))
+	(post-updates bot))
     (condition (the-condition) 
       (format t "Error for ~a ~a - ~a ~%" (user-nickname bot) bot the-condition)
       ;; If the error wasn't handled it's unexpected, so quit here

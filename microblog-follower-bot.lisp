@@ -60,7 +60,7 @@
   (debug-msg "Responding to post ~a" post)
   (let ((response (response-for-post bot post)))
     (when response
-      (queue-update response))))
+      (queue-update bot response))))
 
 (defmethod filter-posts ((bot microblog-follower-bot) posts)
   "Make sure only one post from each user is listed"
