@@ -191,7 +191,18 @@
 	      (push update (updates-to-post bot))
 	      ;; And don't try any more for now, wait for the next run
 	      ;; Which may not add any more messages, but will try to post these
-	      (return))))))
+	      (return))
+	    ;; Other errors that we know about
+	    ((or usocket:socket-condition usocket:ns-condition
+	      drakma:drakma-condition cl+ssl::ssl-error)
+		(the-error)
+	      (format t "Error for ~a ~a update \"~a\" - ~a ~%" 
+		      (user-nickname bot) bot update the-error)
+	     ;; Restore the failed update
+	     (push update (updates-to-post bot))
+	     ;; And don't try any more for now, wait for the next run
+	     ;; Which may not add any more messages, but will try to post these
+	     (return))))))
 
 (defmethod run-bot-once ((bot microblog-bot))
   (debug-msg "Running bot once ~a" bot)

@@ -1,5 +1,5 @@
 ;; packages.lisp -  The package definition(s) for microblog-bot.
-;; Copyright (C) 2009  Rob Myers rob@robmyers.org
+;; Copyright (C) 2009, 2010  Rob Myers rob@robmyers.org
 ;;
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,8 @@
 (defpackage microblog-bot
   (:documentation
    "Microblog bot creation support.")
-  (:use #:common-lisp #:cl-twit)
+  ;; We have to import usocket, drakma, and cl+ssl to handle their exceptions
+  (:use #:common-lisp #:cl-twit #:usocket #:drakma #:cl+ssl)
   (:export set-microblog-service
 	   set-debug
 	   set-live
